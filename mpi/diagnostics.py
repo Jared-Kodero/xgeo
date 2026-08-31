@@ -14,7 +14,7 @@ from typing import Any
 
 from mpi4py import MPI
 
-from ..core.utils import LockFile, tmp
+from ..xarray.core import LockFile, tmp
 
 
 class MPIError(Exception):

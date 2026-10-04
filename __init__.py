@@ -42,8 +42,6 @@ from __future__ import annotations
 
 import os
 
-from core.xnpy import to_xnpy
-
 os.environ.setdefault("HDF5_USE_FILE_LOCKING", "FALSE")
 
 import warnings
@@ -56,6 +54,7 @@ import xarray  # noqa: F401  must load before core.climtools (circular import)
 
 from .core.climtools import apply_widget_css
 from .core.progress import DaskProgressBar
+from .core.xnpy import to_xnpy
 from .xarray.accessors import fix_xarray
 
 if TYPE_CHECKING:
@@ -69,6 +68,7 @@ if TYPE_CHECKING:
         locked_print,
         nproc,
     )
+    from .core.grib_io import get_grib_codes, open_grib, save_grib
     from .core.progress import SerialProgressBar
     from .core.xnpy import (
         open_xnpy_dataframe,
@@ -124,9 +124,11 @@ __all__ = [
     "cmaps",
     "exclude_key",
     "fillgaps",
+    "get_grib_codes",
     "locked_print",
     "mask",
     "nproc",
+    "open_grib",
     "open_xnpy_dataframe",
     "open_xnpy_dataset",
     "open_xnpy_ndarray",
@@ -134,6 +136,7 @@ __all__ = [
     "plot",
     "preprocess",
     "regrid",
+    "save_grib",
     "sel_transect",
     "stats",
     "to_lon180",
@@ -159,11 +162,14 @@ _LAZY_IMPORTS: dict[str, tuple[str, str | None]] = {
     "empty_distributed_dataset": (".xarray.io", "empty_distributed_dataset"),
     "exclude_key": (".core.climtools", "exclude_key"),
     "fillgaps": (".xarray.utils", "fillgaps"),
+    "get_grib_codes": (".core.grib_io", "get_grib_codes"),
     "is_distributed_empty": (".xarray.io", "is_distributed_empty"),
     "locked_print": (".core.climtools", "locked_print"),
     "mask": (".xarray.utils", "mask"),
     "nc_append": (".xarray.io", "nc_append"),
     "nproc": (".core.climtools", "nproc"),
+    "open_grib": (".core.grib_io", "open_grib"),
+    "save_grib": (".core.grib_io", "save_grib"),
     "open_distributed_dataset": (".xarray.io", "open_distributed_dataset"),
     "open_xnpy_dataframe": (".core.xnpy", "open_xnpy_dataframe"),
     "open_xnpy_dataset": (".core.xnpy", "open_xnpy_dataset"),

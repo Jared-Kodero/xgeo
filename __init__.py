@@ -96,7 +96,7 @@ if TYPE_CHECKING:
         mask,
         regrid,
         sel_transect,
-        to_lon180,
+        wrap_lon,
     )
 
 warnings.filterwarnings("ignore")
@@ -139,8 +139,8 @@ __all__ = [
     "save_grib",
     "sel_transect",
     "stats",
-    "to_lon180",
     "to_xnpy",
+    "wrap_lon",
 ]
 
 

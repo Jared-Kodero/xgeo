@@ -326,17 +326,27 @@ def sel_transect(
     return data.where(mask, drop=drop)
 
 
-def to_lon180(
-    data: xr.Dataset | xr.DataArray, lon: str = "lon"
+def wrap_lon(
+    data: xr.Dataset | xr.DataArray,
+    convention: Literal["-180/180", "0/360"] = "-180/180",
+    lon: str = "lon",
 ) -> xr.Dataset | xr.DataArray:
-    """Standardize longitude coordinates to [-180, 180)."""
+    """Wrap longitude coordinates to the specified convention."""
     if lon not in data.coords:
-        raise ValueError(f"Dataset must contain {lon!r} coordinate.")
+        raise ValueError(f"Data must contain {lon!r} coordinate.")
 
-    data = data.copy()
-    data[lon] = (data[lon] + 180) % 360 - 180
-    data = data.sortby(lon)
-    return data
+    attrs = data[lon].attrs
+    if convention == "-180/180":
+        new_lon = data[lon] = (data[lon] + 180) % 360 - 180
+    elif convention == "0/360":
+        new_lon = data[lon] = data[lon] % 360
+    else:
+        raise ValueError(f"Unsupported convention: {convention!r}")
+
+    data = data.assign_coords({lon: new_lon})
+    data[lon].attrs = attrs
+
+    return data.sortby(lon)
 
 
 def coord_id(coord: xr.DataArray) -> str:

@@ -149,21 +149,13 @@ class GeoBase:
             self._obj, lon=lon, time=time, name=name
         )
 
-    def to_lon180(self, lon: str = "lon") -> xr.Dataset | xr.DataArray:
-        """Wrap the longitude coordinate to the interval [-180, 180).
-
-        Parameters
-        ----------
-        lon : str, default "lon"
-            Name of the longitude coordinate.
-
-        Returns
-        -------
-        xarray.Dataset or xarray.DataArray
-            The object with wrapped and sorted longitudes.
-
-        """
-        return xgeo_xarray_utils.to_lon180(self._obj, lon=lon)
+    def wrap_lon(
+        self,
+        convention: Literal["-180/180", "0/360"] = "-180/180",
+        lon: str = "lon",
+    ) -> xr.Dataset | xr.DataArray:
+        """Wrap longitude coordinates to the specified convention."""
+        return xgeo_xarray_utils.wrap_lon(self._obj, convention=convention, lon=lon)
 
     def add_cyclic_point(self, lon: str = "lon") -> xr.Dataset | xr.DataArray:
         """Append a cyclic longitude point, closing the seam at the date line.
@@ -179,9 +171,8 @@ class GeoBase:
             The object with one extra longitude point.
 
         """
-        from .utils import add_cyclic_point
 
-        return add_cyclic_point(self._obj, lon=lon)
+        return xgeo_xarray_utils.add_cyclic_point(self._obj, lon=lon)
 
     # -- selection --------------------------------------------------------
     def sel_transect(

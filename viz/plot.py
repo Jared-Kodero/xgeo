@@ -64,10 +64,10 @@ from .plot_utils import (
     resolve_cmap_params,
     select_facet,
     set_preview_quality,
-    to_lon180,
     validate_animation_inputs,
     validate_data,
     validate_vector_components,
+    wrap_lon,
 )
 
 if TYPE_CHECKING:
@@ -1531,7 +1531,7 @@ class Adder:
             )
         if self._plot.cyclic:
             data = add_cyclic_point(data, lon=self._plot.x)
-        normalized = to_lon180(data, lon=self._plot.x)
+        normalized = wrap_lon(data, lon=self._plot.x)
         assert normalized is not None
         return normalized
 

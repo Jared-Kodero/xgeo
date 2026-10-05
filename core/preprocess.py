@@ -2,8 +2,11 @@ import operator as op
 from collections.abc import Callable
 
 import pandas as pd
-import xarray as xr
 from xarray.coding.times import encode_cf_datetime
+
+import xarray as xr
+
+from ..xarray.utils import wrap_lon
 
 attributes = {
     "t2m": {"units": "degC", "factor": 273.15, "operand": op.sub},
@@ -90,7 +93,7 @@ def era5(ds: xr.Dataset) -> xr.Dataset:
     standard_dims = ("time", "plev", "lat", "lon")
     dims = [dim for dim in standard_dims if dim in ds.dims]
 
-    ds["lon"] = ((ds["lon"] + 180) % 360) - 180
+    ds = wrap_lon(ds, convention="0/360", lon="lon")
 
     ds["lat"].attrs = {
         "standard_name": "latitude",

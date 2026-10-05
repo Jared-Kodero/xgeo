@@ -20,7 +20,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import xarray as xr
 from cartopy.mpl.ticker import LatitudeFormatter, LongitudeFormatter
 from cf_xarray import *
 from IPython.display import clear_output
@@ -34,12 +33,14 @@ from matplotlib.ticker import FixedLocator, MaxNLocator, ScalarFormatter
 from matplotlib.transforms import Bbox
 from xarray.plot.facetgrid import FacetGrid
 
+import xarray as xr
+
 from ..core.climtools import get_fsig
 from ..xarray.utils import (
     add_cyclic_point,
     get_spatial_dims,
     set_edges_to_nan,
-    to_lon180,
+    wrap_lon,
 )
 from .cmaps import classify_cmap, slice_cmap
 
@@ -529,7 +530,7 @@ def norm_input(
         raise ValueError(f"y coordinate {y!r} is not present in data.coords")
     if cyclic:
         data = add_cyclic_point(data, lon=x)
-    data = to_lon180(data, lon=x).squeeze()
+    data = wrap_lon(data, lon=x).squeeze()
     validate_facets(data, col=col, row=row, col_wrap=col_wrap)
     allowed_dimensions = {x, y}
     if col is not None:

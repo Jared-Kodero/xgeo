@@ -12,8 +12,8 @@ from ..core import climtools as xgeo_core_utils
 from ..core import preprocess as xgeo_core_preprocess
 from ..core import stats as xgeo_core_calc
 from ..viz import plot
-from . import io as xgeo_xarray_io
-from . import utils as xgeo_xarray_utils
+from ..xarray_mpi import io as xgeo_xarray_io
+from . import xr_utils as xgeo_xarray_utils
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -1111,7 +1111,7 @@ def fix_xarray(*, force: bool = False) -> tuple[Path, ...]:
     if xarray_spec is None or xarray_spec.origin is None:
         raise RuntimeError("Cannot locate the xarray package.")
 
-    marker = Path(xarray_spec.origin).resolve().parent / ".xgeo_patch"
+    marker = Path(xarray_spec.origin).resolve().parent / ".xgeo"
     xarray_init = Path(xarray_spec.origin).resolve()
 
     if not force and marker.exists():
@@ -1133,8 +1133,8 @@ def fix_xarray(*, force: bool = False) -> tuple[Path, ...]:
     begin = "XGEO_IDE_TYPING BEGIN"
     end = "XGEO_IDE_TYPING END"
 
-    bridge_path = Path(__file__).resolve().parent / "xgeo_patch.py"
-    type_module = f"{__package__}.xgeo_patch"
+    bridge_path = Path(__file__).resolve().parent / "xr_init.py"
+    type_module = f"{__package__}.xr_init"
 
     bridge = (
         "from __future__ import annotations\n"

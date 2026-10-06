@@ -16,7 +16,7 @@ from scipy.interpolate import griddata
 
 import xarray as xr
 
-from ..core.climtools import nproc, tmp
+from .climtools import nproc, tmp
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

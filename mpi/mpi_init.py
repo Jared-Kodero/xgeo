@@ -22,9 +22,8 @@ bypassed by import order.
 from __future__ import annotations
 
 import os
+import sys
 from typing import TYPE_CHECKING
-
-from ..core.climtools import ipykernel
 
 #: Launcher variables reporting the world *size*. Rank variables are useless
 #: for this: Slurm exports ``SLURM_PROCID`` into every task of every step and
@@ -53,7 +52,7 @@ def world_size() -> int:
     return 1
 
 
-if ipykernel and world_size() <= 1:
+if "ipykernel" in sys.modules and world_size() <= 1:
     MPI = None
 else:
     from mpi4py import MPI

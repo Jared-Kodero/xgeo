@@ -11,12 +11,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-
 import xarray as xr
 
+from ..mpi.mpi_init import MPI
 from ..mpp.ext_collectives import gather_v
 from ..mpp.ext_domains import dim_comm
-from ..mpi.mpi_init import MPI
 from ..mpp.mpp_do_update import (
     mpp_complete_update_domains,
     mpp_start_update_domains,
@@ -237,7 +236,7 @@ def mpp_halo_exchange(
     if before < 0 or after < 0:
         raise ValueError("before and after must be >= 0")
 
-    from ..xarray.planning import _agree
+    from .planning import _agree
 
     _agree(
         mpi_context,

@@ -49,13 +49,12 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 import dask.diagnostics
-
 import xarray  # noqa: F401  must load before core.climtools (circular import)
 
+from .core.accessors import fix_xarray
 from .core.climtools import apply_widget_css
 from .core.progress import DaskProgressBar
 from .core.xnpy import to_xnpy
-from .xarray.accessors import fix_xarray
 
 if TYPE_CHECKING:
     from .core import operator, preprocess, stats
@@ -76,10 +75,19 @@ if TYPE_CHECKING:
         open_xnpy_ndarray,
         to_xnpy,
     )
+    from .core.xr_utils import (
+        SetupDask,
+        add_local_solar_time,
+        fillgaps,
+        mask,
+        regrid,
+        sel_transect,
+        wrap_lon,
+    )
     from .mpi.context import MPIContext  # noqa: F401
     from .viz import cmaps, plot
-    from .xarray.core import MPIXarray  # noqa: F401
-    from .xarray.io import (
+    from .xr_mpi.core import MPIXarray  # noqa: F401
+    from .xr_mpi.io import (
         create_distributed_dataarray,  # noqa: F401
         create_distributed_dataset,  # noqa: F401
         distribute_data,  # noqa: F401
@@ -88,15 +96,6 @@ if TYPE_CHECKING:
         nc_append,  # noqa: F401
         open_distributed_dataset,  # noqa: F401
         to_netcdf,  # noqa: F401
-    )
-    from .xarray.utils import (
-        SetupDask,
-        add_local_solar_time,
-        fillgaps,
-        mask,
-        regrid,
-        sel_transect,
-        wrap_lon,
     )
 
 warnings.filterwarnings("ignore")
@@ -149,39 +148,39 @@ _LAZY_IMPORTS: dict[str, tuple[str, str | None]] = {
     "LockFile": (".core.climtools", "LockFile"),
     "LockedLogger": (".core.climtools", "LockedLogger"),
     "MPIContext": (".mpi.context", "MPIContext"),
-    "MPIXarray": (".xarray.core", "MPIXarray"),
+    "MPIXarray": (".xr_mpi.core", "MPIXarray"),
     "RedirectStreams": (".core.climtools", "RedirectStreams"),
     "SerialProgressBar": (".core.progress", "SerialProgressBar"),
-    "SetupDask": (".xarray.utils", "SetupDask"),
+    "SetupDask": (".core.xr_utils", "SetupDask"),
     "SharedMemoryObject": (".core.climtools", "SharedMemoryObject"),
-    "add_local_solar_time": (".xarray.utils", "add_local_solar_time"),
+    "add_local_solar_time": (".core.xr_utils", "add_local_solar_time"),
     "cmaps": (".viz.cmaps", None),
-    "create_distributed_dataarray": (".xarray.io", "create_distributed_dataarray"),
-    "create_distributed_dataset": (".xarray.io", "create_distributed_dataset"),
-    "distribute_data": (".xarray.io", "distribute_data"),
-    "empty_distributed_dataset": (".xarray.io", "empty_distributed_dataset"),
+    "create_distributed_dataarray": (".xr_mpi.io", "create_distributed_dataarray"),
+    "create_distributed_dataset": (".xr_mpi.io", "create_distributed_dataset"),
+    "distribute_data": (".xr_mpi.io", "distribute_data"),
+    "empty_distributed_dataset": (".xr_mpi.io", "empty_distributed_dataset"),
     "exclude_key": (".core.climtools", "exclude_key"),
-    "fillgaps": (".xarray.utils", "fillgaps"),
+    "fillgaps": (".core.xr_utils", "fillgaps"),
     "get_grib_codes": (".core.grib_io", "get_grib_codes"),
-    "is_distributed_empty": (".xarray.io", "is_distributed_empty"),
+    "is_distributed_empty": (".xr_mpi.io", "is_distributed_empty"),
     "locked_print": (".core.climtools", "locked_print"),
-    "mask": (".xarray.utils", "mask"),
-    "nc_append": (".xarray.io", "nc_append"),
+    "mask": (".core.xr_utils", "mask"),
+    "nc_append": (".xr_mpi.io", "nc_append"),
     "nproc": (".core.climtools", "nproc"),
     "open_grib": (".core.grib_io", "open_grib"),
     "save_grib": (".core.grib_io", "save_grib"),
-    "open_distributed_dataset": (".xarray.io", "open_distributed_dataset"),
+    "open_distributed_dataset": (".xr_mpi.io", "open_distributed_dataset"),
     "open_xnpy_dataframe": (".core.xnpy", "open_xnpy_dataframe"),
     "open_xnpy_dataset": (".core.xnpy", "open_xnpy_dataset"),
     "open_xnpy_ndarray": (".core.xnpy", "open_xnpy_ndarray"),
     "operator": (".core.operator", None),
     "plot": (".viz.plot", None),
     "preprocess": (".core.preprocess", None),
-    "regrid": (".xarray.utils", "regrid"),
-    "sel_transect": (".xarray.utils", "sel_transect"),
+    "regrid": (".core.xr_utils", "regrid"),
+    "sel_transect": (".core.xr_utils", "sel_transect"),
     "stats": (".core.stats", None),
-    "to_lon180": (".xarray.utils", "to_lon180"),
-    "to_netcdf": (".xarray.io", "to_netcdf"),
+    "to_lon180": (".core.xr_utils", "to_lon180"),
+    "to_netcdf": (".xr_mpi.io", "to_netcdf"),
     "to_xnpy": (".core.xnpy", "to_xnpy"),
 }
 

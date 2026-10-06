@@ -5,7 +5,7 @@ and decorator-based MPI execution. The :data:`mpi` singleton uses
 ``MPI.COMM_WORLD`` by default.
 """
 
-# mpi.py
+# context.py
 from __future__ import annotations
 
 import atexit

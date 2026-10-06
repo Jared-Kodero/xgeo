@@ -14,28 +14,28 @@ from types import EllipsisType
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
+
 import xarray as xr
 
-from ..mpp.ext_collectives import reduce_scatter
 from ..mpi.mpi_init import MPI
+from ..mpp.ext_collectives import reduce_scatter
 
 if TYPE_CHECKING:
     from ..mpi.context import MPIContext
 
+from ..mpp.mpp import _mpp_reduce, extreme_identity
 from .meta import mpp_get_meta, mpp_partition_meta
-from ..mpp.mpp import _mpp_reduce
-from ..mpp.mpp import extreme_identity
 from .planning import (
     _FLAG_ENCODING,
-    mpp_sum_and_count,
-    residual_shape,
     ReduceContext,
-    op_name,
-    partial_dtype,
     guarded,
     mpp_comm_reduce,
     mpp_count_valid_values,
     mpp_global_reduce,
+    mpp_sum_and_count,
+    op_name,
+    partial_dtype,
+    residual_shape,
     skipna_enabled,
 )
 
@@ -45,8 +45,7 @@ _PROD_FIELD_DIM = "_mpp_prod_field"
 
 
 from .halo import mpp_halo_exchange
-from .meta import reattach_meta
-from .meta import mpp_operand_meta, mpp_redefine_domain
+from .meta import mpp_operand_meta, mpp_redefine_domain, reattach_meta
 from .planning import _agree
 
 

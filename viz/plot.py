@@ -9,8 +9,6 @@ and ``Animate`` renders a sequence of ``GeoPlot`` objects to an MP4 file.
 
 from __future__ import annotations
 
-import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -27,6 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import xarray as xr
 from dask.callbacks import Callback
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
@@ -34,8 +33,6 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.collections import PathCollection, QuadMesh
 from matplotlib.contour import QuadContourSet
 from matplotlib.image import AxesImage
-
-import xarray as xr
 
 from ..core.climtools import nproc, tmp
 from ..core.progress import DaskProgressBar, SerialProgressBar
@@ -181,8 +178,12 @@ class Theme:
             fig_size = None
 
         if self.latex and shutil.which("latex") is None:
-            warnings.warn("Latex not found. Attempting to install LaTeX...")
-            self._install_latex()
+            file_dir = Path(__file__).resolve().parent
+            script = file_dir / "data" / "script" / "latex.install"
+            warnings.warn(
+                "LaTeX was requested but no `latex` executable was found.\n"
+                + f"Run the following installation script:\n\t{script}"
+            )
             self.latex = False
 
         rc: dict[str, object] = {
@@ -241,35 +242,6 @@ class Theme:
             palette=self.palette,
             rc=rc,
         )
-
-    @staticmethod
-    def _install_latex() -> bool | None:
-        """Install LaTeX on supported Linux systems."""
-        file_dir = Path(__file__).resolve().parent
-        script = file_dir / "data" / "script" / "latex.install"
-        std_out = file_dir / "data" / "script" / "latex.install.out"
-        lock_file = file_dir / "data" / "script" / "latex.lock"
-
-        lock_file.touch()
-
-        if lock_file.exists():
-            return None
-
-        if not script.exists():
-            warnings.warn(
-                "Skipping LaTeX installation: installation script not found. See https://www.tug.org/texlive/"
-            )
-            return False
-
-        if platform.system() != "Linux":
-            warnings.warn("Skipping LaTeX installation: only Linux is supported.")
-            return False
-
-        os.system(f"chmod +x {script}")
-        cmd = f"nohup bash -c {script} > {std_out} 2>&1 &"
-        os.system(cmd)
-
-        return None
 
 
 def theme(

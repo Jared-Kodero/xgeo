@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "xgeo"
 version = "0.1.0"
-description = "Geospatial analysis, plotting, and MPI-distributed xarray for climate data."
+description = "Geospatial analysis, plotting, and climate-data tools for xarray."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.14"
@@ -14,7 +14,6 @@ keywords = [
     "climate",
     "xarray",
     "netcdf",
-    "mpi",
     "cartopy",
     "atmospheric-science",
 ]
@@ -29,23 +28,8 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
 ]
 
-# Every entry below is imported somewhere in xgeo's own source (not
-# transitively pulled in by another dependency). These plain PyPI wheels are
-# enough for everything except MPI-collective parallel NetCDF-4 output
-# (xgeo.to_netcdf(..., parallel=True) under more than one rank),
-# which needs netCDF4 and mpi4py rebuilt against a parallel-enabled
-# MPI/HDF5/NetCDF-C stack. `pip install xgeo` cannot build that stack
-# itself (pip has no post-install hook, and the build depends on the local
-# HPC module system or a from-source compile). After installing, clone this
-# repository and run its setup script instead:
-#
-#   git clone https://github.com/Jared-Kodero/xgeo.git
-#   cd xgeo && env/setup_env.sh
-#
-# xgeo also prints a one-time hint pointing here the first time
-# xgeo.mpi is used under a real multi-rank launch without a parallel
-# netCDF4 build (see _warn_if_parallel_netcdf_missing in core/lib_mpi.py).
-# See env/setup_env.sh and the README's Installation section for detail.
+# MPI-distributed arrays and parallel I/O are packaged separately as xrmpi.
+# This package uses the ordinary NetCDF backend for serial xarray I/O.
 dependencies = [
     "numpy",
     "pandas",
@@ -55,7 +39,6 @@ dependencies = [
     "cftime",
     "netCDF4",
     "cf_xarray",
-    "mpi4py>=3.1",
     "matplotlib",
     "cartopy",
     "seaborn",
@@ -73,19 +56,11 @@ Issues = "https://github.com/Jared-Kodero/xgeo/issues"
 Documentation = "https://github.com/Jared-Kodero/xgeo#readme"
 
 [project.optional-dependencies]
-# xesmf is imported only inside xgeo.regrid on first call; the rest
-# of the package works without it. Its ESMF dependency is far more reliable
-# from conda-forge than from pip; see env/environment.yml.
+# xesmf is imported by regrid on first use; see env/env.yaml for Conda.
 regrid = ["xesmf"]
-# pytest: not used by test/test_*.py directly (those are plain scripts
-# run under `mpirun ... python -m mpi4py`), but needed to run this project's
-# own unit tests, if any are added under pytest collection later.
-# bottleneck: test/_sweep-style checks build their serial reference for
-# first()/last() with xarray's DataArray.bfill()/.ffill(), which xarray
-# routes through `bottleneck.push` (core/duck_array_ops.py::_push) and raises
-# ModuleNotFoundError without. Not a mpi_context dependency of xgeo itself
-# (first/last never calls bfill/ffill), only of the test suite.
-dev = ["typing_extensions", "build", "twine", "pytest", "bottleneck"]
+# GRIB helpers are imported lazily and need the ecCodes bindings.
+grib = ["cfgrib", "eccodes"]
+dev = ["typing_extensions", "build", "twine", "pytest", "ruff"]
 
 [tool.setuptools]
 # This repository's root *is* the "xgeo" package: __init__.py sits
@@ -96,10 +71,7 @@ packages = [
     "xgeo",
     "xgeo.cdo",
     "xgeo.core",
-    "xgeo.mpi",
-    "xgeo.mpp",
     "xgeo.viz",
-    "xgeo.xarray",
 ]
 package-dir = { xgeo = "." }
 
@@ -108,6 +80,5 @@ package-dir = { xgeo = "." }
 "xgeo.viz" = ["data/**/*"]
 
 [tool.setuptools.exclude-package-data]
-# Keep the sdist/wheel free of dev tooling and the multi-hundred-MB test
-# scratch output that setup_env.sh and test/*.py can generate.
-"*" = ["env/*", "test/*.log", "test/__pycache__/*"]
+# Environment setup belongs to the source tree.
+"*" = ["env/*", "__pycache__/*"]

@@ -12,20 +12,16 @@ from ..core import climtools as xgeo_core_utils
 from ..core import preprocess as xgeo_core_preprocess
 from ..core import stats as xgeo_core_calc
 from ..viz import plot
-from ..xarray_mpi import io as xgeo_xarray_io
 from . import xr_utils as xgeo_xarray_utils
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
     from typing import Any, Literal
 
     import numpy as np
     from IPython.display import DisplayHandle
     from matplotlib.collections import PathCollection
     from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize
-    from mpi4py import MPI
 
-    from ..mpi.context import MPIContext
     from ..viz.plot import GeoPlot
 
 
@@ -216,110 +212,7 @@ class GeoBase:
         kwargs = xgeo_core_utils.exclude_key("self", dict(locals()))
         return xgeo_xarray_utils.sel_transect(self._obj, **kwargs)
 
-    # -- NetCDF output -----------------------------------------------------
-    def append(
-        self,
-        file: str | Path,
-        dim: str = "time",
-        mode: Literal["a", "r+"] = "r+",
-        format: str = "NETCDF4",
-        shuffle: bool | None = None,
-        zlib: bool | None = None,
-        complevel: int | None = None,
-    ) -> None:
-        """Append the bound Dataset to an existing file along an unlimited dimension.
-
-        Parameters
-        ----------
-        file : str or pathlib.Path
-            NetCDF4 file with read/write access.
-        dim : str, default "time"
-            Unlimited dimension to append along.
-        mode : {"a", "r+"}, default "r+"
-            File access mode passed to netCDF4.Dataset.
-        format : str, default "NETCDF4"
-            NetCDF format passed to netCDF4.Dataset.
-        shuffle : bool, optional
-            Whether to apply the shuffle filter to newly created variables.
-        zlib : bool, optional
-            Whether to apply zlib compression to newly created variables.
-        complevel : int, optional
-            Compression level, between 1 and 9.
-
-        Returns
-        -------
-        None
-
-        """
-        kwargs = xgeo_core_utils.exclude_key("self", dict(locals()))
-        return xgeo_xarray_io.nc_append(self._obj, **kwargs)
-
-    def to_netcdf(
-        self,
-        file: str | Path,
-        mpi_context: MPIContext | MPI.Intracomm | None = None,
-        unlimited_dim: str | Iterable[str] | None = None,
-        partition_dim: str | None = None,
-        *,
-        parallel: bool = False,
-        batch_size: int = 24,
-        format: str = "NETCDF4",
-        shuffle: bool = True,
-        zlib: bool = True,
-        complevel: int = 4,
-        show_progress: bool = True,
-        stdout: Any = None,
-        chunks: Mapping[str, Iterable[int]] | None = None,
-        hints: str | None = None,
-        nofill: bool = True,
-        allow_serial: bool = False,
-    ) -> None:
-        """Write the bound Dataset or DataArray to NetCDF.
-
-        Parameters
-        ----------
-        file : str or pathlib.Path
-            Output path.
-        mpi_context : MPIContext or mpi4py.MPI.Intracomm, optional
-            MPI context or communicator.
-        unlimited_dim : str or iterable of str, optional
-            Dimension(s) made unlimited in the NetCDF schema.
-        partition_dim : str, optional
-            Dimension partitioned across MPI ranks in parallel mode.
-        parallel : bool, default False
-            Use the MPI-parallel NetCDF-4 writer.
-        batch_size : int, default 24
-            Number of slices along the unlimited dimension written per serial append.
-        format : str, default "NETCDF4"
-            NetCDF format.
-        shuffle : bool, default True
-            Apply the HDF5 shuffle filter.
-        zlib : bool, default True
-            Apply zlib compression.
-        complevel : int, default 4
-            Compression level, between 1 and 9.
-        show_progress : bool, default True
-            Display a progress bar while writing serially.
-        stdout : file-like, optional
-            Stream the serial progress bar is written to.
-        chunks : mapping of str to iterable of int, optional
-            Explicit chunk shape passed to the parallel writer.
-        hints : str, optional
-            Semicolon-separated MPI-IO hints in key=value format.
-        nofill : bool, default True
-            Disable NetCDF pre-filling during parallel initialization.
-        allow_serial : bool, default False
-            Permit execution when running with a single MPI rank.
-
-        Returns
-        -------
-        None
-
-        """
-
-        kwargs = xgeo_core_utils.exclude_key("self", dict(locals()))
-        return xgeo_xarray_io.to_netcdf(self._obj, **kwargs)
-
+    # -- Array storage -----------------------------------------------------
     def to_xnpy(
         self,
         path: str | Path,

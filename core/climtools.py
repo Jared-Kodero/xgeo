@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TextIO
 
 import numpy as np
-
 import xarray as xr
 
 if TYPE_CHECKING:

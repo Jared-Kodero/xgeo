@@ -182,6 +182,6 @@ except Exception:
 apply_widget_css()
 dask.diagnostics.ProgressBar = DaskProgressBar
 
-# from .update import _self_update  # noqa: E402
+# # from .update import _self_update  # noqa: E402
 
-# _self_update()
+# # _self_update()

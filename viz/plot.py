@@ -43,6 +43,7 @@ from .plot_utils import (
     add_grid_boundary,
     add_map_features,
     add_xy_ticks,
+    compute_hillshade,
     enable_interactive_features,
     fmt_anim_title,
     get_facet_figsize,
@@ -445,6 +446,9 @@ def _plot_scalar(
     rasterized: bool = False,
     zorder: float = 1.0,
     add_labels: bool = False,
+    hillshade: bool = False,
+    hillshade_vert_exag: float = 5.0,
+    hillshade_alpha: float = 1.0,
     **kwargs: Any,
 ) -> ScalarPrimitive:
     """Dispatch one scalar layer to an explicit plotting primitive.
@@ -475,6 +479,12 @@ def _plot_scalar(
         Drawing order.
     add_labels : bool, default False
         Let xarray add labels.
+    hillshade : bool, default False
+        Draw grayscale relief beneath the field, using alpha=0.4 unless supplied.
+    hillshade_alpha : float, default 1.0
+        Opacity of the grayscale hillshade layer, between zero and one.
+    hillshade_vert_exag : float, default 5.0
+        Vertical exaggeration for relief computed with unit pixel spacing.
     **kwargs
         Additional method-specific keyword arguments.
 
@@ -483,6 +493,28 @@ def _plot_scalar(
     matplotlib primitive
         Primitive returned by the selected ``plot_*`` function.
     """
+    if hillshade:
+        shaded = compute_hillshade(data.transpose(y, x), z_factor=hillshade_vert_exag)
+        plot_pcolormesh(
+            shaded,
+            fig,
+            ax,
+            x=x,
+            y=y,
+            cmap="gray",
+            vmin=0,
+            vmax=1,
+            alpha=hillshade_alpha,
+            rasterized=rasterized,
+            zorder=zorder - 0.1,
+            **{
+                key: kwargs[key]
+                for key in ("transform", "infer_intervals")
+                if key in kwargs
+            },
+        )
+        kwargs.setdefault("alpha", 0.4)
+
     if method == "default":
         return plot_default(
             data,
@@ -1002,6 +1034,15 @@ class GeoPlot:
         Base contour-label colors.
     clabel_kwargs : mapping, optional
         Additional base contour-label arguments.
+    hillshade : bool, default False
+        Draw grayscale relief beneath the field. The field uses alpha=0.4
+        unless an explicit alpha is supplied. Shading is computed per
+        facet and animation frame with light azimuth 315 and altitude 45.
+    hillshade_alpha : float, default 1.0
+        Opacity of the grayscale hillshade layer, between zero and one.
+    hillshade_vert_exag : float, default 5.0
+        Vertical exaggeration passed to Matplotlib LightSource.hillshade.
+        Uses unit pixel spacing; horizontal distances are not in metres.
     cyclic : bool, default False
         Append a cyclic horizontal point before plotting.
     **kwargs
@@ -1100,6 +1141,9 @@ class GeoPlot:
         clabel_colors: str | Sequence[str] | None = None,
         clabel_kwargs: Mapping[str, Any] | None = None,
         cyclic: bool = False,
+        hillshade: bool = False,
+        hillshade_vert_exag: float = 5.0,
+        hillshade_alpha: float = 1.0,
         **kwargs: Any,
     ) -> None:
 
@@ -1199,6 +1243,9 @@ class GeoPlot:
                 extend=self.extend,
                 robust=robust,
                 rasterized=rasterized,
+                hillshade=hillshade,
+                hillshade_vert_exag=hillshade_vert_exag,
+                hillshade_alpha=hillshade_alpha,
                 clabel=clabel or method == "contour",
                 clabel_fmt=clabel_fmt,
                 clabel_fontsize=clabel_fontsize,
@@ -1263,6 +1310,9 @@ class GeoPlot:
                 extend=self.extend,
                 robust=robust,
                 rasterized=rasterized,
+                hillshade=hillshade,
+                hillshade_vert_exag=hillshade_vert_exag,
+                hillshade_alpha=hillshade_alpha,
                 **kwargs,
             )
 
@@ -2425,6 +2475,15 @@ class Animate:
         Label line contours.
     clabel_fmt, clabel_fontsize, clabel_inline, clabel_colors, clabel_kwargs
         Contour-label options.
+    hillshade : bool, default False
+        Draw grayscale relief beneath the field. The field uses alpha=0.4
+        unless an explicit alpha is supplied. Shading is computed per
+        facet and animation frame with light azimuth 315 and altitude 45.
+    hillshade_alpha : float, default 1.0
+        Opacity of the grayscale hillshade layer, between zero and one.
+    hillshade_vert_exag : float, default 5.0
+        Vertical exaggeration passed to Matplotlib LightSource.hillshade.
+        Uses unit pixel spacing; horizontal distances are not in metres.
     cyclic : bool, default False
         Append a cyclic horizontal point to each frame.
     indices : sequence of int, optional
@@ -2524,6 +2583,9 @@ class Animate:
         clabel_colors: str | Sequence[str] | None = None,
         clabel_kwargs: Mapping[str, Any] | None = None,
         cyclic: bool = False,
+        hillshade: bool = False,
+        hillshade_vert_exag: float = 5.0,
+        hillshade_alpha: float = 1.0,
         indices: Sequence[int] | np.ndarray | None = None,
         outfile: str | Path | None = None,
         quality: Literal["low", "medium", "high"] = "medium",
@@ -2619,6 +2681,9 @@ class Animate:
             "clabel_colors": clabel_colors,
             "clabel_kwargs": clabel_kwargs,
             "cyclic": cyclic,
+            "hillshade": hillshade,
+            "hillshade_vert_exag": hillshade_vert_exag,
+            "hillshade_alpha": hillshade_alpha,
         }
         self.geo_options.update(kwargs)
         self.display_result: Any | None = None
@@ -2847,6 +2912,9 @@ def geoplot(
     clabel_colors: str | Sequence[str] | None = None,
     clabel_kwargs: Mapping[str, Any] | None = None,
     cyclic: bool = False,
+    hillshade: bool = False,
+    hillshade_vert_exag: float = 5.0,
+    hillshade_alpha: float = 1.0,
     **kwargs: Any,
 ) -> GeoPlot:
     """Create a fully typed :class:`GeoPlot` container.
@@ -2915,6 +2983,15 @@ def geoplot(
         Base colorbar tick options.
     clabel, clabel_fmt, clabel_fontsize, clabel_inline, clabel_colors, clabel_kwargs
         Line-contour label controls.
+    hillshade : bool, default False
+        Draw grayscale relief beneath the field. The field uses alpha=0.4
+        unless an explicit alpha is supplied. Shading is computed per
+        facet and animation frame with light azimuth 315 and altitude 45.
+    hillshade_alpha : float, default 1.0
+        Opacity of the grayscale hillshade layer, between zero and one.
+    hillshade_vert_exag : float, default 5.0
+        Vertical exaggeration passed to Matplotlib LightSource.hillshade.
+        Uses unit pixel spacing; horizontal distances are not in metres.
     cyclic : bool, default False
         Append a cyclic horizontal point.
     **kwargs
@@ -2998,6 +3075,9 @@ def animate(
     clabel_colors: str | Sequence[str] | None = None,
     clabel_kwargs: Mapping[str, Any] | None = None,
     cyclic: bool = False,
+    hillshade: bool = False,
+    hillshade_vert_exag: float = 5.0,
+    hillshade_alpha: float = 1.0,
     indices: Sequence[int] | np.ndarray | None = None,
     outfile: str | Path | None = None,
     quality: Literal["low", "medium", "high"] = "medium",
@@ -3046,6 +3126,15 @@ def animate(
         Per-frame vector layer.
     clabel, clabel_fmt, clabel_fontsize, clabel_inline, clabel_colors, clabel_kwargs
         Per-frame line-contour label options.
+    hillshade : bool, default False
+        Draw grayscale relief beneath the field. The field uses alpha=0.4
+        unless an explicit alpha is supplied. Shading is computed per
+        facet and animation frame with light azimuth 315 and altitude 45.
+    hillshade_alpha : float, default 1.0
+        Opacity of the grayscale hillshade layer, between zero and one.
+    hillshade_vert_exag : float, default 5.0
+        Vertical exaggeration passed to Matplotlib LightSource.hillshade.
+        Uses unit pixel spacing; horizontal distances are not in metres.
     cyclic : bool, default False
         Append a cyclic horizontal point.
     indices : sequence of int, optional

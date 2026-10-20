@@ -399,6 +399,9 @@ class GeoDataArray(GeoBase):
         clabel_colors: str | None = None,
         clabel_kwargs: dict[str, Any] | None = None,
         cyclic: bool = False,
+        hillshade: bool = False,
+        hillshade_vert_exag: float = 5.0,
+        hillshade_alpha: float = 1.0,
         **kwargs: Any,
     ) -> GeoPlot:
         """Plot the bound DataArray on a Cartopy map.
@@ -479,6 +482,15 @@ class GeoDataArray(GeoBase):
             Draw contour labels inline.
         clabel_kwargs : dict, optional
             Additional ``Axes.clabel`` arguments.
+        hillshade : bool, default False
+            Draw grayscale relief beneath the field. The field uses alpha=0.4
+            unless an explicit alpha is supplied. Shading is computed per
+            facet and animation frame with light azimuth 315 and altitude 45.
+        hillshade_alpha : float, default 1.0
+            Opacity of the grayscale hillshade layer, between zero and one.
+        hillshade_vert_exag : float, default 5.0
+            Vertical exaggeration passed to Matplotlib LightSource.hillshade.
+            Uses unit pixel spacing; horizontal distances are not in metres.
         cyclic : bool, default False
             Append a cyclic longitude point before plot.
         **kwargs : Any
@@ -564,6 +576,9 @@ class GeoDataArray(GeoBase):
         clabel_colors: str | None = None,
         clabel_kwargs: dict[str, Any] | None = None,
         cyclic: bool = False,
+        hillshade: bool = False,
+        hillshade_vert_exag: float = 5.0,
+        hillshade_alpha: float = 1.0,
         indices: tuple[int, ...] | list[int] | np.ndarray[Any, Any] | None = None,
         outfile: Path | str | None = None,
         quality: Literal["low", "medium", "high"] = "medium",
@@ -644,6 +659,15 @@ class GeoDataArray(GeoBase):
             Contour-label font size.
         clabel_inline : bool, default True
             Draw contour labels inline.
+        hillshade : bool, default False
+            Draw grayscale relief beneath the field. The field uses alpha=0.4
+            unless an explicit alpha is supplied. Shading is computed per
+            facet and animation frame with light azimuth 315 and altitude 45.
+        hillshade_alpha : float, default 1.0
+            Opacity of the grayscale hillshade layer, between zero and one.
+        hillshade_vert_exag : float, default 5.0
+            Vertical exaggeration passed to Matplotlib LightSource.hillshade.
+            Uses unit pixel spacing; horizontal distances are not in metres.
         cyclic : bool, default False
             Append a cyclic longitude point to each frame.
         indices : sequence of int or numpy.ndarray, optional

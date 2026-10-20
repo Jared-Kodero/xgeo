@@ -27,7 +27,7 @@ from IPython.display import clear_output
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colorbar import Colorbar
-from matplotlib.colors import BoundaryNorm, Colormap, Normalize
+from matplotlib.colors import BoundaryNorm, Colormap, LightSource, Normalize
 from matplotlib.figure import Figure
 from matplotlib.quiver import QuiverKey
 from matplotlib.ticker import FixedLocator, MaxNLocator, ScalarFormatter
@@ -68,6 +68,7 @@ __all__ = [
     "add_contour_labels",
     "add_map_features",
     "add_xy_ticks",
+    "compute_hillshade",
     "get_cax",
     "get_facet_figsize",
     "get_map_aspect",
@@ -151,6 +152,49 @@ def validate_data(data: xr.DataArray) -> xr.DataArray:
     if data.size == 0:
         raise ValueError("data must contain at least one value")
     return data
+
+
+def compute_hillshade(
+    da: xr.DataArray,
+    z_factor: float = 5.0,
+    azimuth: float = 315.0,
+    altitude: float = 45.0,
+) -> xr.DataArray:
+    """Compute grayscale relief with Matplotlib, preserving xarray metadata.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        Two-dimensional elevation field in (y, x) dimension order. Each axis
+        must contain at least two cells. Coordinate order determines gradient
+        direction; without coordinates, the first row is assumed to be north.
+    z_factor : float, default 5.0
+        Vertical exaggeration. Gradients use unit pixel spacing, without
+        converting horizontal coordinates to physical distances.
+    azimuth : float, default 315.0
+        Light direction in degrees clockwise from north.
+    altitude : float, default 45.0
+        Light height in degrees above the horizon.
+
+    Returns
+    -------
+    xarray.DataArray
+        Illumination between zero and one, retaining dimensions, coordinates,
+        name, attributes, and missing cells from the input.
+    """
+    da = validate_data(da)
+    if da.ndim != 2 or min(da.shape) < 2:
+        raise ValueError(
+            "hillshade requires a 2D field with at least two cells per axis"
+        )
+    y, x = da.dims
+    # LightSource assumes the first row is north; account for coordinate order.
+    dx = -1 if x in da.coords and da[x][-1] < da[x][0] else 1
+    dy = -1 if y in da.coords and da[y][-1] > da[y][0] else 1
+    shaded = LightSource(azdeg=azimuth, altdeg=altitude).hillshade(
+        np.ma.masked_invalid(da.values), vert_exag=z_factor, dx=dx, dy=dy
+    )
+    return da.copy(data=shaded).where(np.isfinite(da))
 
 
 class CmapParams(NamedTuple):

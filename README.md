@@ -51,6 +51,36 @@ Colorbar tick labels are formatted with a math-text `ScalarFormatter` by default
 ds["topo"].xgeo.geoplot(cmap="terrain", cbar_scalar_formatter=False)
 ```
 
+Enable hillshade to draw grayscale relief beneath a semitransparent scalar field:
+
+```python
+ds["topo"].xgeo.geoplot(
+    hillshade=True, hillshade_vert_exag=10, hillshade_alpha=1.0,
+    cmap="terrain", robust=True,
+)
+ds["topo"].xgeo.animate(
+    dim="time", hillshade=True, hillshade_vert_exag=10, hillshade_alpha=1.0,
+    cmap="terrain", robust=True,
+)
+```
+
+These arguments also work with `xgeo.plot.geoplot` and `xgeo.plot.animate`,
+including facets. Hillshade defaults to `False`, and vertical exaggeration to
+`5.0`. Shading uses Matplotlib's `LightSource` with azimuth 315 degrees, altitude
+45 degrees, and unit pixel spacing. The original field retains its colormap and
+colorbar and uses `alpha=0.4` unless explicitly supplied. `hillshade_alpha`
+controls the grayscale layer's opacity and defaults to `1.0`. No additional
+dependency is required. This provides visual relief without converting
+horizontal grid spacing to physical distances.
+
+The computation is also available separately for a two-dimensional `(y, x)` field:
+
+```python
+from xgeo.viz.plot_utils import compute_hillshade_matplotlib
+
+shaded = compute_hillshade_matplotlib(ds["topo"], z_factor=10)
+```
+
 ## Geospatial and statistical tools
 
 ```python

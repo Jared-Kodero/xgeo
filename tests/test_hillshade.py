@@ -13,7 +13,8 @@ import xarray as xr
 from matplotlib.collections import QuadMesh
 from matplotlib.colors import LightSource
 from xgeo.viz import plot
-from xgeo.viz.plot_utils import compute_hillshade_matplotlib
+from xgeo.viz.options import Hillshade, MapFeatures
+from xgeo.viz.plot_utils import compute_hillshade, hillshade_spacing
 
 
 @pytest.fixture
@@ -36,11 +37,9 @@ def map_options() -> dict:
         "x": "lon",
         "y": "lat",
         "projection": "PlateCarree",
-        "add_coastlines": False,
-        "add_borders": False,
-        "add_states": False,
-        "add_ocean": False,
-        "add_land": False,
+        "features": MapFeatures(
+            coastlines=False, borders=False, states=False, ocean=False, land=False
+        ),
         "figsize": (4, 3),
     }
 
@@ -57,9 +56,7 @@ def close_figures():
 def test_geoplot_hillshade(terrain, map_options, method):
     original = terrain.copy(deep=True)
     result = terrain.xgeo.geoplot(
-        hillshade=True,
-        hillshade_vert_exag=10,
-        hillshade_alpha=0.65,
+        hillshade=Hillshade(vert_exag=10, alpha=0.65, spacing="pixel"),
         method=method,
         cmap="terrain",
         robust=True,
@@ -89,7 +86,7 @@ def test_alpha_override(terrain, map_options, alpha):
 
 
 def test_disabled_hillshade(terrain, map_options):
-    result = plot.geoplot(terrain, hillshade_vert_exag=10, **map_options)
+    result = plot.geoplot(terrain, hillshade=False, **map_options)
     assert len(result.axes.collections) == 1
     assert result.artist.get_alpha() is None
 
@@ -102,7 +99,14 @@ def test_coordinate_order_and_transpose(terrain, reverse_lat, reverse_lon):
         lon=slice(None, None, -1 if reverse_lon else 1),
     ).transpose("lon", "lat")
     fig, ax = plt.subplots()
-    plot._plot_scalar(field, fig, ax, x="lon", y="lat", hillshade=True)
+    plot._plot_scalar(
+        field,
+        fig,
+        ax,
+        x="lon",
+        y="lat",
+        hillshade=Hillshade(vert_exag=5, spacing="pixel"),
+    )
     actual = field.transpose("lat", "lon").copy(data=ax.collections[0].get_array())
     expected = terrain.copy(
         data=LightSource(315, 45).hillshade(terrain.values, vert_exag=5)
@@ -123,7 +127,7 @@ def test_nan_mask(terrain, map_options):
 
 def test_hillshade_helper(terrain):
     original = terrain.copy(deep=True)
-    shaded = compute_hillshade_matplotlib(terrain, z_factor=2, azimuth=90, altitude=30)
+    shaded = compute_hillshade(terrain, z_factor=2, azimuth=90, altitude=30)
     np.testing.assert_allclose(
         shaded.values, LightSource(90, 30).hillshade(terrain.values, vert_exag=2)
     )
@@ -136,18 +140,21 @@ def test_hillshade_helper(terrain):
 @pytest.mark.parametrize("shape", [(3,), (1, 3), (3, 3, 3)])
 def test_hillshade_helper_requires_2d_grid(shape):
     with pytest.raises(ValueError, match="2D field"):
-        compute_hillshade_matplotlib(xr.DataArray(np.zeros(shape)))
+        compute_hillshade(xr.DataArray(np.zeros(shape)))
 
 
 def test_hillshade_helper_missing_data(terrain):
     field = xr.full_like(terrain, np.nan)
-    assert compute_hillshade_matplotlib(field).isnull().all()
+    assert compute_hillshade(field).isnull().all()
 
 
 def test_facets(terrain, map_options):
     field = xr.concat([terrain, terrain * 2], dim=xr.IndexVariable("panel", [0, 1]))
     result = plot.geoplot(
-        field, col="panel", hillshade=True, hillshade_vert_exag=10, **map_options
+        field,
+        col="panel",
+        hillshade=Hillshade(vert_exag=10, spacing="pixel"),
+        **map_options,
     )
     for index, (ax, _) in enumerate(result.iter_axes()):
         np.testing.assert_allclose(
@@ -185,9 +192,7 @@ def test_animation_frames(terrain, map_options, tmp_path, monkeypatch, accessor)
     monkeypatch.setattr(plot, "SerialProgressBar", lambda tasks, **kwargs: tasks)
     options = {
         **map_options,
-        "hillshade": True,
-        "hillshade_vert_exag": 10,
-        "hillshade_alpha": 0.65,
+        "hillshade": Hillshade(vert_exag=10, alpha=0.65, spacing="pixel"),
         "parallel": False,
         "display_inline": False,
         "indices": [1, 0],
@@ -196,9 +201,41 @@ def test_animation_frames(terrain, map_options, tmp_path, monkeypatch, accessor)
     result = (
         field.xgeo.animate(**options) if accessor else plot.animate(field, **options)
     )
-    assert result.geo_options["hillshade"] is True
-    assert result.geo_options["hillshade_alpha"] == 0.65
+    assert result.geo_options["hillshade"].alpha == 0.65
     assert len(calls) == 2
     for (actual, exaggeration), index in zip(calls, [1, 0], strict=True):
         np.testing.assert_array_equal(actual, field.isel(time=index).values)
         assert exaggeration == 10
+
+
+def test_default_hillshade_uses_physical_spacing(terrain, map_options):
+    """The default converts a degree grid to metres instead of unit pixels."""
+    result = plot.geoplot(terrain, hillshade=True, **map_options)
+    dx, dy = hillshade_spacing(terrain, x="lon", y="lat")
+    expected = LightSource(315, 45).hillshade(terrain.values, vert_exag=1, dx=dx, dy=dy)
+    np.testing.assert_allclose(result.axes.collections[0].get_array(), expected)
+    assert dx != 1.0 and dy != 1.0
+
+
+def test_hillshade_light_and_colormap_overrides(terrain, map_options):
+    options = Hillshade(azimuth=270, altitude=30, cmap="viridis", field_alpha=None)
+    result = plot.geoplot(terrain, hillshade=options, **map_options)
+    shade = result.axes.collections[0]
+    dx, dy = hillshade_spacing(terrain, x="lon", y="lat")
+    np.testing.assert_allclose(
+        shade.get_array(),
+        LightSource(270, 30).hillshade(terrain.values, vert_exag=1, dx=dx, dy=dy),
+    )
+    assert shade.get_cmap().name == "viridis"
+    assert result.artist.get_alpha() is None
+
+
+def test_hillshade_helper_spacing(terrain):
+    dx, dy = 2.0, 3.0
+    shaded = compute_hillshade(terrain, z_factor=2, dx=dx, dy=dy)
+    np.testing.assert_allclose(
+        shaded.values,
+        LightSource(315, 45).hillshade(terrain.values, vert_exag=2, dx=dx, dy=dy),
+    )
+    with pytest.raises(ValueError, match="positive"):
+        compute_hillshade(terrain, dx=0)

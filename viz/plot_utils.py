@@ -74,6 +74,7 @@ __all__ = [
     "get_map_aspect",
     "get_projection",
     "get_quiver_key_mag",
+    "hillshade_spacing",
     "norm_input",
     "normalize_subsample",
     "plot_contour",
@@ -154,11 +155,85 @@ def validate_data(data: xr.DataArray) -> xr.DataArray:
     return data
 
 
+#: Mean Earth radius in metres (IUGG), used to convert degree grids to metres.
+EARTH_RADIUS_M = 6371008.8
+
+
+def hillshade_spacing(
+    da: xr.DataArray,
+    *,
+    x: str,
+    y: str,
+    spacing: Literal["auto", "pixel"] | tuple[float, float] = "auto",
+) -> tuple[float, float]:
+    """Resolve the horizontal cell spacing ``(dx, dy)`` for a hillshade.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        Field whose one-dimensional ``x`` and ``y`` coordinates define the grid.
+    x, y : str
+        Horizontal coordinate names.
+    spacing : {"auto", "pixel"} or tuple of float, default "auto"
+        ``"pixel"`` returns ``(1, 1)``. A tuple is returned unchanged.
+        ``"auto"`` converts degree coordinates to metres using the mean cell
+        step and the mean latitude, treats coordinates in metres or kilometres
+        as metres, and otherwise returns ``(1, 1)``.
+
+    Returns
+    -------
+    tuple of float
+        Positive ``(dx, dy)``. The vertical unit of the field is assumed to
+        match the returned unit.
+    """
+    if not isinstance(spacing, str):
+        return float(spacing[0]), float(spacing[1])
+    if spacing == "pixel":
+        return 1.0, 1.0
+
+    def unit(name: str) -> str | None:
+        attrs = da[name].attrs
+        label = str(attrs.get("units", "")).strip().lower()
+        if label.startswith("degree") or label in {"deg", "degrees"}:
+            return "degrees"
+        if label in {"m", "meter", "meters", "metre", "metres"}:
+            return "m"
+        if label in {"km", "kilometer", "kilometers", "kilometre", "kilometres"}:
+            return "km"
+        if label == "" and (
+            str(attrs.get("standard_name", "")).lower() in {"latitude", "longitude"}
+            or name.lower() in {"lat", "latitude", "lon", "longitude"}
+        ):
+            return "degrees"
+        return None
+
+    if da[x].ndim != 1 or da[y].ndim != 1 or da[x].size < 2 or da[y].size < 2:
+        return 1.0, 1.0
+    step_x = float(np.nanmean(np.abs(np.diff(da[x].values.astype(float)))))
+    step_y = float(np.nanmean(np.abs(np.diff(da[y].values.astype(float)))))
+    if not (np.isfinite(step_x) and np.isfinite(step_y)) or step_x <= 0 or step_y <= 0:
+        return 1.0, 1.0
+    unit_x, unit_y = unit(x), unit(y)
+    if unit_x == "degrees" and unit_y == "degrees":
+        mean_lat = float(np.nanmean(da[y].values.astype(float)))
+        cos_lat = max(np.cos(np.deg2rad(mean_lat)), 1e-6)
+        return (
+            EARTH_RADIUS_M * cos_lat * np.deg2rad(step_x),
+            EARTH_RADIUS_M * np.deg2rad(step_y),
+        )
+    factors = {"m": 1.0, "km": 1000.0}
+    if unit_x in factors and unit_y in factors:
+        return step_x * factors[unit_x], step_y * factors[unit_y]
+    return 1.0, 1.0
+
+
 def compute_hillshade(
     da: xr.DataArray,
-    z_factor: float = 5.0,
+    z_factor: float = 1.0,
     azimuth: float = 315.0,
     altitude: float = 45.0,
+    dx: float = 1.0,
+    dy: float = 1.0,
 ) -> xr.DataArray:
     """Compute grayscale relief with Matplotlib, preserving xarray metadata.
 
@@ -168,13 +243,16 @@ def compute_hillshade(
         Two-dimensional elevation field in (y, x) dimension order. Each axis
         must contain at least two cells. Coordinate order determines gradient
         direction; without coordinates, the first row is assumed to be north.
-    z_factor : float, default 5.0
-        Vertical exaggeration. Gradients use unit pixel spacing, without
-        converting horizontal coordinates to physical distances.
+    z_factor : float, default 1.0
+        Vertical exaggeration applied to the elevation.
     azimuth : float, default 315.0
         Light direction in degrees clockwise from north.
     altitude : float, default 45.0
         Light height in degrees above the horizon.
+    dx, dy : float, default 1.0
+        Positive horizontal cell spacing in the unit of the elevation. The
+        default of one makes the result depend on grid resolution; see
+        :func:`hillshade_spacing` for physical spacing.
 
     Returns
     -------
@@ -187,12 +265,17 @@ def compute_hillshade(
         raise ValueError(
             "hillshade requires a 2D field with at least two cells per axis"
         )
+    if not (np.isfinite(dx) and np.isfinite(dy)) or dx <= 0 or dy <= 0:
+        raise ValueError("dx and dy must be positive and finite")
     y, x = da.dims
     # LightSource assumes the first row is north; account for coordinate order.
-    dx = -1 if x in da.coords and da[x][-1] < da[x][0] else 1
-    dy = -1 if y in da.coords and da[y][-1] > da[y][0] else 1
+    sign_x = -1 if x in da.coords and da[x][-1] < da[x][0] else 1
+    sign_y = -1 if y in da.coords and da[y][-1] > da[y][0] else 1
     shaded = LightSource(azdeg=azimuth, altdeg=altitude).hillshade(
-        np.ma.masked_invalid(da.values), vert_exag=z_factor, dx=dx, dy=dy
+        np.ma.masked_invalid(da.values),
+        vert_exag=z_factor,
+        dx=sign_x * dx,
+        dy=sign_y * dy,
     )
     return da.copy(data=shaded).where(np.isfinite(da))
 
@@ -782,7 +865,12 @@ def add_contour_labels(
     fontsize: float = 8.0,
     inline: bool = True,
     colors: str | Sequence[str] | None = None,
-    kwargs: Mapping[str, Any] | None = None,
+    levels: Sequence[float] | None = None,
+    inline_spacing: float = 5.0,
+    rightside_up: bool = True,
+    use_clabeltext: bool = False,
+    manual: bool | Sequence[tuple[float, float]] = False,
+    zorder: float | None = None,
 ) -> list[Text]:
     """Label a line-contour primitive.
 
@@ -803,8 +891,19 @@ def add_contour_labels(
         Draw labels inline with contour lines.
     colors : str or sequence of str, optional
         Label colors.
-    kwargs : mapping, optional
-        Additional arguments forwarded to :meth:`Axes.clabel`.
+    levels : sequence of float, optional
+        Contour levels to label. All levels are labelled when omitted.
+    inline_spacing : float, default 5
+        Gap in points on each side of an inline label.
+    rightside_up : bool, default True
+        Rotate labels so that the text is never upside down.
+    use_clabeltext : bool, default False
+        Use ``ClabelText`` so that labels follow the line when the aspect ratio
+        changes.
+    manual : bool or sequence of (float, float), default False
+        ``True`` places labels by mouse click; a sequence gives data coordinates.
+    zorder : float, optional
+        Drawing order of the labels.
 
     Returns
     -------
@@ -812,13 +911,19 @@ def add_contour_labels(
         Created text primitives.
     """
 
+    extra: dict[str, Any] = {} if zorder is None else {"zorder": zorder}
     labels = ax.clabel(
         artist,
+        levels=levels,
         fmt=fmt,
         fontsize=fontsize,
         inline=inline,
         colors=colors,
-        **dict(kwargs or {}),
+        inline_spacing=inline_spacing,
+        rightside_up=rightside_up,
+        use_clabeltext=use_clabeltext,
+        manual=manual,
+        **extra,
     )
     return list(labels)
 

@@ -3,6 +3,9 @@
 The top level exposes the geospatial and plotting API:
 
 - ``plot``      Cartopy map plotting. Entry point :func:`xgeo.plot.geoplot`.
+- ``Hillshade``, ``MapFeatures``, ``MapTicks``, ``ColorbarStyle``,
+  ``ContourLabels``, ``Significance``, ``VectorField``  Option groups for
+  ``geoplot`` and ``animate``, also available as ``xgeo.plot.<Name>``.
 - ``regrid``, ``mask``, ``fillgaps``, ``sel_transect``, ``to_lon180``,
   ``add_local_solar_time``  Geospatial operations on xarray objects.
 - ``to_xnpy`` and the ``open_xnpy_*`` readers  Memory-mapped array storage.
@@ -87,19 +90,35 @@ if TYPE_CHECKING:
         wrap_lon,
     )
     from .viz import cmaps, plot
+    from .viz.options import (
+        ColorbarStyle,
+        ContourLabels,
+        Hillshade,
+        MapFeatures,
+        MapTicks,
+        Significance,
+        VectorField,
+    )
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("always", module=r"xgeo\..*")
 
 #: Public geospatial, plotting, preprocessing, and storage names.
 __all__ = [
+    "ColorbarStyle",
+    "ContourLabels",
     "DaskProgressBar",
+    "Hillshade",
     "LockFile",
     "LockedLogger",
+    "MapFeatures",
+    "MapTicks",
     "RedirectStreams",
     "SerialProgressBar",
     "SetupDask",
     "SharedMemoryObject",
+    "Significance",
+    "VectorField",
     "add_local_solar_time",
     "cmaps",
     "exclude_key",
@@ -125,13 +144,20 @@ __all__ = [
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str | None]] = {
+    "ColorbarStyle": (".viz.options", "ColorbarStyle"),
+    "ContourLabels": (".viz.options", "ContourLabels"),
     "DaskProgressBar": (".core.progress", "DaskProgressBar"),
+    "Hillshade": (".viz.options", "Hillshade"),
     "LockFile": (".core.climtools", "LockFile"),
     "LockedLogger": (".core.climtools", "LockedLogger"),
+    "MapFeatures": (".viz.options", "MapFeatures"),
+    "MapTicks": (".viz.options", "MapTicks"),
     "RedirectStreams": (".core.climtools", "RedirectStreams"),
     "SerialProgressBar": (".core.progress", "SerialProgressBar"),
     "SetupDask": (".core.xr_utils", "SetupDask"),
     "SharedMemoryObject": (".core.climtools", "SharedMemoryObject"),
+    "Significance": (".viz.options", "Significance"),
+    "VectorField": (".viz.options", "VectorField"),
     "add_local_solar_time": (".core.xr_utils", "add_local_solar_time"),
     "cmaps": (".viz.cmaps", None),
     "exclude_key": (".core.climtools", "exclude_key"),
@@ -141,7 +167,6 @@ _LAZY_IMPORTS: dict[str, tuple[str, str | None]] = {
     "mask": (".core.xr_utils", "mask"),
     "nproc": (".core.climtools", "nproc"),
     "open_grib": (".core.grib_io", "open_grib"),
-    "save_grib": (".core.grib_io", "save_grib"),
     "open_xnpy_dataframe": (".core.xnpy", "open_xnpy_dataframe"),
     "open_xnpy_dataset": (".core.xnpy", "open_xnpy_dataset"),
     "open_xnpy_ndarray": (".core.xnpy", "open_xnpy_ndarray"),
@@ -149,6 +174,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str | None]] = {
     "plot": (".viz.plot", None),
     "preprocess": (".core.preprocess", None),
     "regrid": (".core.xr_utils", "regrid"),
+    "save_grib": (".core.grib_io", "save_grib"),
     "sel_transect": (".core.xr_utils", "sel_transect"),
     "stats": (".core.stats", None),
     "to_lon180": (".core.xr_utils", "to_lon180"),

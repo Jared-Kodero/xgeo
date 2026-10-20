@@ -34,8 +34,18 @@ from matplotlib.collections import PathCollection, QuadMesh
 from matplotlib.contour import QuadContourSet
 from matplotlib.image import AxesImage
 
-from ..core.climtools import nproc, tmp
+from ..core.climtools import exclude_key, nproc, tmp
 from ..core.progress import DaskProgressBar, SerialProgressBar
+from .options import (
+    ColorbarStyle,
+    ContourLabels,
+    Hillshade,
+    MapFeatures,
+    MapTicks,
+    Significance,
+    VectorField,
+    resolve_options,
+)
 from .plot_utils import add_colorbar as _add_colorbar
 from .plot_utils import (
     add_contour_labels,
@@ -47,8 +57,10 @@ from .plot_utils import (
     enable_interactive_features,
     fmt_anim_title,
     get_facet_figsize,
+    get_function_inputs,
     get_projection,
     get_quiver_key_mag,
+    hillshade_spacing,
     interactive_backend,
     norm_input,
     plot_contour,
@@ -82,8 +94,15 @@ if TYPE_CHECKING:
 __all__ = [
     "Adder",
     "Animate",
+    "ColorbarStyle",
+    "ContourLabels",
     "FacetedPlot",
     "GeoPlot",
+    "Hillshade",
+    "MapFeatures",
+    "MapTicks",
+    "Significance",
+    "VectorField",
     "animate",
     "create_figure",
     "geoplot",
@@ -446,9 +465,7 @@ def _plot_scalar(
     rasterized: bool = False,
     zorder: float = 1.0,
     add_labels: bool = False,
-    hillshade: bool = False,
-    hillshade_vert_exag: float = 5.0,
-    hillshade_alpha: float = 1.0,
+    hillshade: Hillshade | None = None,
     **kwargs: Any,
 ) -> ScalarPrimitive:
     """Dispatch one scalar layer to an explicit plotting primitive.
@@ -479,12 +496,9 @@ def _plot_scalar(
         Drawing order.
     add_labels : bool, default False
         Let xarray add labels.
-    hillshade : bool, default False
-        Draw grayscale relief beneath the field, using alpha=0.4 unless supplied.
-    hillshade_alpha : float, default 1.0
-        Opacity of the grayscale hillshade layer, between zero and one.
-    hillshade_vert_exag : float, default 5.0
-        Vertical exaggeration for relief computed with unit pixel spacing.
+    hillshade : Hillshade, optional
+        Grayscale relief drawn beneath the field. The field uses
+        ``hillshade.field_alpha`` unless ``alpha`` is supplied.
     **kwargs
         Additional method-specific keyword arguments.
 
@@ -493,18 +507,26 @@ def _plot_scalar(
     matplotlib primitive
         Primitive returned by the selected ``plot_*`` function.
     """
-    if hillshade:
-        shaded = compute_hillshade(data.transpose(y, x), z_factor=hillshade_vert_exag)
+    if hillshade is not None:
+        dx, dy = hillshade_spacing(data, x=x, y=y, spacing=hillshade.spacing)
+        shaded = compute_hillshade(
+            data.transpose(y, x),
+            z_factor=hillshade.vert_exag,
+            azimuth=hillshade.azimuth,
+            altitude=hillshade.altitude,
+            dx=dx,
+            dy=dy,
+        )
         plot_pcolormesh(
             shaded,
             fig,
             ax,
             x=x,
             y=y,
-            cmap="gray",
+            cmap=hillshade.cmap,
             vmin=0,
             vmax=1,
-            alpha=hillshade_alpha,
+            alpha=hillshade.alpha,
             rasterized=rasterized,
             zorder=zorder - 0.1,
             **{
@@ -513,7 +535,8 @@ def _plot_scalar(
                 if key in kwargs
             },
         )
-        kwargs.setdefault("alpha", 0.4)
+        if hillshade.field_alpha is not None:
+            kwargs.setdefault("alpha", hillshade.field_alpha)
 
     if method == "default":
         return plot_default(
@@ -640,24 +663,12 @@ class FacetedPlot:
         Figure size in inches. A domain-aware size is inferred when omitted.
     sharex, sharey : bool, default True
         Share horizontal and vertical axis limits across facet panels.
-    map_global_extent : bool, default False
-        Use a global map extent.
-    set_map_extent : tuple of float, optional
-        Explicit geographic extent.
-    map_ticks : bool, default False
-        Draw longitude and latitude ticks.
-    map_xtick_bins : float, default 5
-        Maximum number of longitude tick intervals.
-    map_ytick_bins : float, default 5
-        Maximum number of latitude tick intervals.
-    add_grid_bounds:
-       If True, draw an outline along the outer perimeter of the plotted grid domain.
-    add_coastlines, add_borders, add_states : bool, default True
-        Add boundary features.
-    add_ocean, add_land : bool, default True
-        Control background fills.
-    add_lakes, add_rivers : bool, default False
-        Add inland-water features.
+    features : MapFeatures, optional
+        Map features, extent and grid outline applied to every panel. The
+        defaults of :class:`MapFeatures` are used when omitted.
+    map_ticks : MapTicks, optional
+        Draw longitude and latitude ticks on every panel with these bin counts.
+        No ticks are drawn when omitted.
 
     Attributes
     ----------
@@ -686,20 +697,10 @@ class FacetedPlot:
         figsize: tuple[float, float] | None,
         sharex: bool = True,
         sharey: bool = True,
-        map_global_extent: bool = False,
-        set_map_extent: tuple[float, float, float, float] | None = None,
-        map_ticks: bool = False,
-        map_xtick_bins: int = 5,
-        map_ytick_bins: int = 5,
-        add_grid_bounds: bool = False,
-        add_coastlines: bool = True,
-        add_borders: bool = True,
-        add_states: bool = True,
-        add_ocean: bool = True,
-        add_land: bool = True,
-        add_lakes: bool = False,
-        add_rivers: bool = False,
+        features: MapFeatures | None = None,
+        map_ticks: MapTicks | None = None,
     ) -> None:
+        features = features or MapFeatures()
         self.data = data
         self.x = x
         self.y = y
@@ -740,26 +741,26 @@ class FacetedPlot:
                 add_map_features(
                     self.figure,
                     axis,
-                    global_extent=map_global_extent,
-                    set_extent=set_map_extent,
-                    coastlines=add_coastlines,
-                    states=add_states,
-                    borders=add_borders,
-                    lakes=add_lakes,
-                    rivers=add_rivers,
-                    ocean=add_ocean,
-                    land=add_land,
+                    global_extent=features.global_extent,
+                    set_extent=features.extent,
+                    coastlines=features.coastlines,
+                    states=features.states,
+                    borders=features.borders,
+                    lakes=features.lakes,
+                    rivers=features.rivers,
+                    ocean=features.ocean,
+                    land=features.land,
                 )
             )
-            if map_ticks:
+            if map_ticks is not None:
                 add_xy_ticks(
                     self.figure,
                     axis,
                     grid,
-                    xticks_bins=map_xtick_bins,
-                    yticks_bins=map_ytick_bins,
+                    xticks_bins=map_ticks.xbins,
+                    yticks_bins=map_ticks.ybins,
                 )
-            if add_grid_bounds:
+            if features.grid_bounds:
                 add_grid_boundary(
                     axis,
                     data[self.x].values,
@@ -848,12 +849,8 @@ class FacetedPlot:
         robust: bool = False,
         rasterized: bool = False,
         interactive: bool = False,
-        clabel: bool = False,
-        clabel_fmt: str | Mapping[float, str] = "%1.0f",
-        clabel_fontsize: float = 8.0,
-        clabel_inline: bool = True,
-        clabel_colors: str | Sequence[str] | None = None,
-        clabel_kwargs: Mapping[str, Any] | None = None,
+        contour_labels: ContourLabels | None = None,
+        hillshade: Hillshade | None = None,
         **kwargs: Any,
     ) -> list[ScalarPrimitive]:
         """Render the scalar field on every populated facet.
@@ -872,18 +869,11 @@ class FacetedPlot:
             Use percentile-based color limits where supported.
         rasterized : bool, default False
             Rasterize dense primitives where supported.
-        clabel : bool, default False
-            Label line contours.
-        clabel_fmt : str or mapping, default "%1.0f"
-            Contour-label format.
-        clabel_fontsize : float, default 8
-            Contour-label font size.
-        clabel_inline : bool, default True
-            Draw labels inline.
-        clabel_colors : str or sequence of str, optional
-            Contour-label colors.
-        clabel_kwargs : mapping, optional
-            Additional arguments forwarded to :func:`add_contour_labels`.
+        contour_labels : ContourLabels, optional
+            Label settings for line contours. Contours are not labelled when
+            omitted.
+        hillshade : Hillshade, optional
+            Grayscale relief drawn beneath each panel.
         **kwargs
             Additional method-specific plotting arguments.
 
@@ -911,21 +901,22 @@ class FacetedPlot:
                 extend=extend,
                 robust=robust,
                 rasterized=rasterized,
+                hillshade=hillshade,
                 **kwargs,
             )
 
             self.artists.append(artist)
-            if clabel and method == "contour" and isinstance(artist, QuadContourSet):
+            if (
+                contour_labels is not None
+                and method == "contour"
+                and isinstance(artist, QuadContourSet)
+            ):
                 self.contour_labels.append(
                     add_contour_labels(
                         self.figure,
                         axis,
                         artist,
-                        fmt=clabel_fmt,
-                        fontsize=clabel_fontsize,
-                        inline=clabel_inline,
-                        colors=clabel_colors,
-                        kwargs=clabel_kwargs,
+                        **contour_labels.arguments(),
                     )
                 )
 
@@ -979,70 +970,38 @@ class GeoPlot:
         Rasterize dense scalar primitives.
     title : str | Dict, default None
         Plot title. if dict provide options accepted by plt.title or figure.suptitle
-    cbar_orientation : {"vertical", "horizontal"}, optional
-        Base colorbar orientation. Defaults to vertical for a single axis and
-        horizontal for facets.
-    add_colorbar : bool, default True
+    colorbar : bool, default True
         Add a base colorbar for scalar plots other than line contours.
         Line contours use inline contour labels instead.
-    cbar_drawedges : bool, default True
-        Draw colorbar interval edges.
-    cbar_label : str, optional
+    colorbar_label : str, optional
         Explicit base colorbar label.
-    cbar_minimal_ticks : bool, default True
-         If True, reduce the number of ticks skipping every other one when possible.
-    cbar_scalar_formatter : bool, default True
-        Format automatic colorbar tick labels with a math-text ``ScalarFormatter``.
-        If False, keep the default Matplotlib formatter.
-    map_global_extent : bool, default False
-        Use a global map extent.
-    set_map_extent : tuple of float, optional
-        Explicit extent ``(lon_min, lon_max, lat_min, lat_max)``.
-    map_ticks : bool, default False
-        Draw longitude and latitude ticks.
-    map_xtick_bins : float, default 5
-        Maximum number of longitude tick intervals.
-    map_ytick_bins : float, default 5
-        Maximum number of latitude tick intervals.
-    add_grid_bounds:
-        If True, draw an outline along the outer perimeter of the plotted grid domain.
-    add_coastlines, add_borders, add_states : bool, default True
-        Add common boundary features.
-    add_ocean, add_land : bool, default True
-        Control background fills.
-    add_lakes, add_rivers : bool, default False
-        Add inland-water features.
-    p_value : xarray.DataArray, optional
-        Pointwise p-values added as significance markers.
-    pvalue_kwargs : mapping, optional
-        Arguments forwarded to :meth:`Adder.significance`.
-    u_component, v_component : xarray.DataArray, optional
-        Vector components added as a quiver layer.
-    quiver_kwargs : mapping, optional
-        Arguments forwarded to :meth:`Adder.quiver`.
-    cbar_kwargs : mapping, optional
-        Additional base colorbar options.
-    clabel : bool, default False
-        Label a line-contour base. Line contours are labeled automatically.
-    clabel_fmt : str or mapping, default "%1.0f"
-        Base contour-label format.
-    clabel_fontsize : float, default 8
-        Base contour-label font size.
-    clabel_inline : bool, default True
-        Draw base contour labels inline.
-    clabel_colors : str or sequence of str, optional
-        Base contour-label colors.
-    clabel_kwargs : mapping, optional
-        Additional base contour-label arguments.
-    hillshade : bool, default False
-        Draw grayscale relief beneath the field. The field uses alpha=0.4
-        unless an explicit alpha is supplied. Shading is computed per
-        facet and animation frame with light azimuth 315 and altitude 45.
-    hillshade_alpha : float, default 1.0
-        Opacity of the grayscale hillshade layer, between zero and one.
-    hillshade_vert_exag : float, default 5.0
-        Vertical exaggeration passed to Matplotlib LightSource.hillshade.
-        Uses unit pixel spacing; horizontal distances are not in metres.
+    colorbar_orientation : {"vertical", "horizontal"}, optional
+        Base colorbar orientation. Vertical when omitted.
+    colorbar_style : ColorbarStyle or dict, optional
+        Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
+        ``ticks`` and ``tick_labels``.
+    features : MapFeatures or dict, optional
+        Map features and extent: ``coastlines``, ``borders``, ``states``,
+        ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
+        ``extent`` and ``grid_bounds``.
+    map_ticks : bool, MapTicks or dict, default False
+        Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
+        and ``ybins``.
+    significance : Significance or dict, optional
+        Pointwise p-values (``pvalues``) drawn as significance markers.
+        Marker styling fields are documented on :class:`Significance`.
+    vectors : VectorField or dict, optional
+        Vector components ``u`` and ``v`` drawn as a quiver layer.
+        Arrow styling fields are documented on :class:`VectorField`.
+    clabel : bool, ContourLabels or dict, default False
+        Label line contours. Line contours are always labelled.
+        Label fields are documented on :class:`ContourLabels`.
+    hillshade : bool, Hillshade or dict, default False
+        Draw grayscale relief beneath the field in the plot. ``True`` uses the
+        :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
+        exaggeration 1 and physical cell spacing for degree and metre grids.
+        The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+        Shading is computed per facet and animation frame.
     cyclic : bool, default False
         Append a cyclic horizontal point before plotting.
     **kwargs
@@ -1109,45 +1068,35 @@ class GeoPlot:
         symmetrical: bool = False,
         rasterized: bool = False,
         title: str | dict | None = None,
-        cbar_orientation: Literal["vertical", "horizontal"] | None = None,
-        add_colorbar: bool = True,
-        cbar_drawedges: bool = True,
-        cbar_label: str | None = None,
-        cbar_minimal_ticks: bool = True,
-        cbar_scalar_formatter: bool = True,
-        map_global_extent: bool = False,
-        set_map_extent: tuple[float, float, float, float] | None = None,
-        map_ticks: bool = False,
-        map_xtick_bins: int = 5,
-        map_ytick_bins: int = 5,
-        add_grid_bounds: bool = False,
-        add_coastlines: bool = True,
-        add_borders: bool = True,
-        add_states: bool = True,
-        add_ocean: bool = True,
-        add_land: bool = True,
-        add_lakes: bool = False,
-        add_rivers: bool = False,
-        p_value: xr.DataArray | None = None,
-        pvalue_kwargs: Mapping[str, Any] | None = None,
-        u_component: xr.DataArray | None = None,
-        v_component: xr.DataArray | None = None,
-        quiver_kwargs: Mapping[str, Any] | None = None,
-        cbar_kwargs: Mapping[str, Any] | None = None,
-        clabel: bool = False,
-        clabel_fmt: str | Mapping[float, str] = "%1.0f",
-        clabel_fontsize: float = 8.0,
-        clabel_inline: bool = True,
-        clabel_colors: str | Sequence[str] | None = None,
-        clabel_kwargs: Mapping[str, Any] | None = None,
+        colorbar: bool = True,
+        colorbar_label: str | None = None,
+        colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
+        colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
+        features: MapFeatures | dict[str, Any] | None = None,
+        map_ticks: bool | MapTicks | dict[str, Any] = False,
+        significance: Significance | dict[str, Any] | None = None,
+        vectors: VectorField | dict[str, Any] | None = None,
+        clabel: bool | ContourLabels | dict[str, Any] = False,
+        hillshade: bool | Hillshade | dict[str, Any] = False,
         cyclic: bool = False,
-        hillshade: bool = False,
-        hillshade_vert_exag: float = 5.0,
-        hillshade_alpha: float = 1.0,
         **kwargs: Any,
     ) -> None:
 
         interactive_backend(interactive)
+
+        options = resolve_options(
+            method=method,
+            colorbar_style=colorbar_style,
+            features=features,
+            hillshade=hillshade,
+            clabel=clabel,
+            map_ticks=map_ticks,
+            significance=significance,
+            vectors=vectors,
+        )
+        style = options.colorbar_style
+        drawedges = True if method == "contourf" else style.drawedges
+        map_options = options.features
 
         self.title = "" if title is None else title
         self.data, self.x, self.y, self.col, self.row = norm_input(
@@ -1176,9 +1125,6 @@ class GeoPlot:
         self.grid: xr.Dataset = self.data.coords.to_dataset()[[self.x, self.y]]
         self.add = Adder(self)
 
-        if method == "contourf":
-            cbar_drawedges = True
-
         cmap_params = resolve_cmap_params(
             vmin,
             vmax,
@@ -1189,7 +1135,7 @@ class GeoPlot:
             extend=extend,
             norm=norm,
             symmetrical=symmetrical,
-            discrete=cbar_drawedges and method != "contourf",
+            discrete=drawedges and method != "contourf",
         )
         self.vmin = cmap_params.vmin
         self.vmax = cmap_params.vmax
@@ -1216,19 +1162,8 @@ class GeoPlot:
                 figsize=figsize,
                 sharex=sharex,
                 sharey=sharey,
-                map_global_extent=map_global_extent,
-                set_map_extent=set_map_extent,
-                map_ticks=map_ticks,
-                map_xtick_bins=map_xtick_bins,
-                map_ytick_bins=map_ytick_bins,
-                add_grid_bounds=add_grid_bounds,
-                add_coastlines=add_coastlines,
-                add_borders=add_borders,
-                add_states=add_states,
-                add_ocean=add_ocean,
-                add_land=add_land,
-                add_lakes=add_lakes,
-                add_rivers=add_rivers,
+                features=map_options,
+                map_ticks=options.map_ticks,
             )
             self.faceted_plot = facet
             self.figure = facet.figure
@@ -1243,15 +1178,8 @@ class GeoPlot:
                 extend=self.extend,
                 robust=robust,
                 rasterized=rasterized,
-                hillshade=hillshade,
-                hillshade_vert_exag=hillshade_vert_exag,
-                hillshade_alpha=hillshade_alpha,
-                clabel=clabel or method == "contour",
-                clabel_fmt=clabel_fmt,
-                clabel_fontsize=clabel_fontsize,
-                clabel_inline=clabel_inline,
-                clabel_colors=clabel_colors,
-                clabel_kwargs=clabel_kwargs,
+                hillshade=options.hillshade,
+                contour_labels=options.contour_labels,
                 interactive=interactive,
                 **kwargs,
             )
@@ -1277,23 +1205,23 @@ class GeoPlot:
             self.map_features = add_map_features(
                 self.figure,
                 axis,
-                global_extent=map_global_extent,
-                set_extent=set_map_extent,
-                coastlines=add_coastlines,
-                states=add_states,
-                borders=add_borders,
-                lakes=add_lakes,
-                rivers=add_rivers,
-                ocean=add_ocean,
-                land=add_land,
+                global_extent=map_options.global_extent,
+                set_extent=map_options.extent,
+                coastlines=map_options.coastlines,
+                states=map_options.states,
+                borders=map_options.borders,
+                lakes=map_options.lakes,
+                rivers=map_options.rivers,
+                ocean=map_options.ocean,
+                land=map_options.land,
             )
-            if map_ticks:
+            if options.map_ticks is not None:
                 add_xy_ticks(
                     self.figure,
                     axis,
                     self.grid,
-                    xticks_bins=map_xtick_bins,
-                    yticks_bins=map_ytick_bins,
+                    xticks_bins=options.map_ticks.xbins,
+                    yticks_bins=options.map_ticks.ybins,
                 )
             self.artist = _plot_scalar(
                 self.data,
@@ -1310,13 +1238,11 @@ class GeoPlot:
                 extend=self.extend,
                 robust=robust,
                 rasterized=rasterized,
-                hillshade=hillshade,
-                hillshade_vert_exag=hillshade_vert_exag,
-                hillshade_alpha=hillshade_alpha,
+                hillshade=options.hillshade,
                 **kwargs,
             )
 
-            if add_grid_bounds:
+            if map_options.grid_bounds:
                 add_grid_boundary(
                     axis,
                     self.grid[self.x].values,
@@ -1326,16 +1252,16 @@ class GeoPlot:
                     zorder=1,
                 )
 
-            if method == "contour" and isinstance(self.artist, QuadContourSet):
+            if (
+                options.contour_labels is not None
+                and method == "contour"
+                and isinstance(self.artist, QuadContourSet)
+            ):
                 self.contour_labels = add_contour_labels(
                     self.figure,
                     axis,
                     self.artist,
-                    fmt=clabel_fmt,
-                    fontsize=clabel_fontsize,
-                    inline=clabel_inline,
-                    colors=clabel_colors,
-                    kwargs=clabel_kwargs,
+                    **options.contour_labels.arguments(),
                 )
 
             if isinstance(self.title, dict):
@@ -1353,28 +1279,27 @@ class GeoPlot:
                 "base": True,
             }
         )
-        if p_value is not None:
-            self.add.significance(p_value, **dict(pvalue_kwargs or {}))
-        u_component, v_component = validate_vector_components(u_component, v_component)
-        if u_component is not None and v_component is not None:
+        if options.significance is not None:
+            self.add.significance(
+                options.significance.pvalues,
+                **options.significance.arguments(exclude=("pvalues",)),
+            )
+        if options.vectors is not None:
+            u_component, v_component = validate_vector_components(
+                options.vectors.u, options.vectors.v
+            )
             self.add.quiver(
                 u_component,
                 v_component,
-                **dict(quiver_kwargs or {}),
+                **options.vectors.style(),
             )
-        if add_colorbar and method != "contour":
-            colorbar_options = dict(cbar_kwargs or {})
-            ticks = colorbar_options.pop("ticks", None)
-            tick_labels = colorbar_options.pop("tick_labels", None)
-            if colorbar_options:
-                unexpected = ", ".join(sorted(colorbar_options))
-                raise TypeError(f"unsupported cbar_kwargs: {unexpected}")
-
-            if cbar_label is None:
+        if colorbar and method != "contour":
+            label = colorbar_label
+            if label is None:
                 long_name = str(self.data.attrs.get("long_name", "")).title()
                 inferred_units = units or self.data.attrs.get("units", self.data.name)
-                cbar_label = f"{long_name}\n[{inferred_units}]".strip()
-            resolved_orientation = cbar_orientation or "vertical"
+                label = f"{long_name}\n[{inferred_units}]".strip()
+            resolved_orientation = colorbar_orientation or "vertical"
             # (
             #     "horizontal" if self.is_faceted else "vertical"
             # )
@@ -1387,13 +1312,13 @@ class GeoPlot:
                 subplots=self.is_faceted,
                 adjust=False,
                 pad_bottom=True if self.quiver_key is not None else None,
-                drawedges=cbar_drawedges,
+                drawedges=drawedges,
                 extend=self.extend,
-                label=cbar_label,
-                ticks=ticks,
-                tick_labels=tick_labels,
-                minimal_ticks=cbar_minimal_ticks,
-                scalar_formatter=cbar_scalar_formatter,
+                label=label,
+                ticks=style.ticks,
+                tick_labels=style.tick_labels,
+                minimal_ticks=style.minimal_ticks,
+                scalar_formatter=style.scalar_formatter,
             )
 
         self.figure.canvas.draw()
@@ -1803,12 +1728,7 @@ class Adder:
         rasterized: bool = False,
         zorder: float = 3.0,
         add_labels: bool = False,
-        clabel: bool = False,
-        clabel_fmt: str | Mapping[float, str] = "%1.0f",
-        clabel_fontsize: float = 8.0,
-        clabel_inline: bool = True,
-        clabel_colors: str | Sequence[str] | None = None,
-        clabel_kwargs: Mapping[str, Any] | None = None,
+        clabel: bool | ContourLabels | dict[str, Any] = False,
         **kwargs: Any,
     ) -> GeoPlot:
         """Add a line-contour layer.
@@ -1837,10 +1757,9 @@ class Adder:
             Drawing order.
         add_labels : bool, default False
             Let xarray add labels.
-        clabel : bool, default False
-            Label each contour set.
-        clabel_fmt, clabel_fontsize, clabel_inline, clabel_colors, clabel_kwargs
-            Contour-label controls.
+        clabel : bool, ContourLabels or dict, default False
+            Label each contour set. Label fields are documented on
+            :class:`ContourLabels`.
         **kwargs
             Additional arguments forwarded to :func:`plot_contour`.
 
@@ -1850,6 +1769,7 @@ class Adder:
             Parent plot.
         """
         data = self._normalized(data)
+        label_options = ContourLabels.coerce(clabel)
         artists: list[QuadContourSet] = []
         labels: list[list[Text]] = []
         for axis, selector in self._plot.iter_axes():
@@ -1875,17 +1795,13 @@ class Adder:
                 **kwargs,
             )
             artists.append(artist)
-            if clabel:
+            if label_options is not None:
                 labels.append(
                     add_contour_labels(
                         self._plot.figure,
                         axis,
                         artist,
-                        fmt=clabel_fmt,
-                        fontsize=clabel_fontsize,
-                        inline=clabel_inline,
-                        colors=clabel_colors,
-                        kwargs=clabel_kwargs,
+                        **label_options.arguments(),
                     )
                 )
         self._plot.register_layer("contour", artists, labels=labels)
@@ -2397,9 +2313,13 @@ def plot_animation_frame(
     )
 
     options = dict(geo_options)
+    vector_style = options.pop("vector_style", None)
     options["da"] = data
-    options["u_component"] = u
-    options["v_component"] = v
+    options["vectors"] = (
+        None
+        if u is None or v is None
+        else VectorField(u=u, v=v, **(vector_style or {}))
+    )
     options["title"] = fmt_title
     plot = GeoPlot(**options)
     filename = session_tmp_dir / f"{frame_number:06d}.png"
@@ -2440,50 +2360,35 @@ class Animate:
         Use symmetrical color limits around zero where supported.
     title : str, optional
         Frame-title prefix.
-    cbar_orientation : {"vertical", "horizontal"}, optional
-        Base colorbar orientation.
-    add_colorbar : bool, default True
-        Add a base colorbar to each frame.
-    cbar_drawedges : bool, default True
-        Draw colorbar interval edges.
-    cbar_label : str, optional
-        Base colorbar label.
-    cbar_minimal_ticks : bool, default True
-         If True, reduce the number of ticks skipping every other one when possible.
-    cbar_scalar_formatter : bool, default True
-        Format automatic colorbar tick labels with a math-text ``ScalarFormatter``.
-        If False, keep the default Matplotlib formatter.
-    map_global_extent : bool, default False
-        Use a global map extent.
-    map_ticks : bool, default False
-        Draw longitude and latitude ticks.
-    map_xtick_bins : float, default 5
-        Maximum number of longitude tick intervals.
-    map_ytick_bins : float, default 5
-        Maximum number of latitude tick intervals.
-    add_grid_bounds : bool, default False
-        If True, draw an outline along the outer perimeter of the plotted grid domain.
-    set_map_extent : tuple of float, optional
-        Explicit map extent.
-    add_coastlines, add_borders, add_states, add_ocean, add_land, add_lakes, add_rivers : bool
-        Map-feature switches.
-    u_component, v_component : xarray.DataArray, optional
-        Vector components animated with ``data``.
-    cbar_kwargs, quiver_kwargs : mapping, optional
-        Base colorbar and vector options.
-    clabel : bool, default False
-        Label line contours.
-    clabel_fmt, clabel_fontsize, clabel_inline, clabel_colors, clabel_kwargs
-        Contour-label options.
-    hillshade : bool, default False
-        Draw grayscale relief beneath the field. The field uses alpha=0.4
-        unless an explicit alpha is supplied. Shading is computed per
-        facet and animation frame with light azimuth 315 and altitude 45.
-    hillshade_alpha : float, default 1.0
-        Opacity of the grayscale hillshade layer, between zero and one.
-    hillshade_vert_exag : float, default 5.0
-        Vertical exaggeration passed to Matplotlib LightSource.hillshade.
-        Uses unit pixel spacing; horizontal distances are not in metres.
+    colorbar : bool, default True
+        Add a base colorbar for scalar plots other than line contours.
+        Line contours use inline contour labels instead.
+    colorbar_label : str, optional
+        Explicit base colorbar label.
+    colorbar_orientation : {"vertical", "horizontal"}, optional
+        Base colorbar orientation. Vertical when omitted.
+    colorbar_style : ColorbarStyle or dict, optional
+        Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
+        ``ticks`` and ``tick_labels``.
+    features : MapFeatures or dict, optional
+        Map features and extent: ``coastlines``, ``borders``, ``states``,
+        ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
+        ``extent`` and ``grid_bounds``.
+    map_ticks : bool, MapTicks or dict, default False
+        Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
+        and ``ybins``.
+    vectors : VectorField or dict, optional
+        Vector components ``u`` and ``v`` drawn as a quiver layer. Both must contain the animation dimension and are selected per frame.
+        Arrow styling fields are documented on :class:`VectorField`.
+    clabel : bool, ContourLabels or dict, default False
+        Label line contours. Line contours are always labelled.
+        Label fields are documented on :class:`ContourLabels`.
+    hillshade : bool, Hillshade or dict, default False
+        Draw grayscale relief beneath the field in each frame. ``True`` uses the
+        :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
+        exaggeration 1 and physical cell spacing for degree and metre grids.
+        The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+        Shading is computed per facet and animation frame.
     cyclic : bool, default False
         Append a cyclic horizontal point to each frame.
     indices : sequence of int, optional
@@ -2553,39 +2458,16 @@ class Animate:
         symmetrical: bool = False,
         rasterized: bool = False,
         title: str | None = None,
-        cbar_orientation: Literal["vertical", "horizontal"] | None = None,
-        add_colorbar: bool = True,
-        cbar_drawedges: bool = True,
-        cbar_label: str | None = None,
-        cbar_minimal_ticks: bool = True,
-        cbar_scalar_formatter: bool = True,
-        map_global_extent: bool = False,
-        set_map_extent: tuple[float, float, float, float] | None = None,
-        map_ticks: bool = False,
-        map_xtick_bins: int = 5,
-        map_ytick_bins: int = 5,
-        add_grid_bounds: bool = False,
-        add_coastlines: bool = True,
-        add_borders: bool = True,
-        add_states: bool = True,
-        add_ocean: bool = True,
-        add_land: bool = True,
-        add_lakes: bool = False,
-        add_rivers: bool = False,
-        u_component: xr.DataArray | None = None,
-        v_component: xr.DataArray | None = None,
-        cbar_kwargs: Mapping[str, Any] | None = None,
-        quiver_kwargs: Mapping[str, Any] | None = None,
-        clabel: bool = False,
-        clabel_fmt: str | Mapping[float, str] = "%1.0f",
-        clabel_fontsize: float = 8.0,
-        clabel_inline: bool = True,
-        clabel_colors: str | Sequence[str] | None = None,
-        clabel_kwargs: Mapping[str, Any] | None = None,
+        colorbar: bool = True,
+        colorbar_label: str | None = None,
+        colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
+        colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
+        features: MapFeatures | dict[str, Any] | None = None,
+        map_ticks: bool | MapTicks | dict[str, Any] = False,
+        vectors: VectorField | dict[str, Any] | None = None,
+        clabel: bool | ContourLabels | dict[str, Any] = False,
+        hillshade: bool | Hillshade | dict[str, Any] = False,
         cyclic: bool = False,
-        hillshade: bool = False,
-        hillshade_vert_exag: float = 5.0,
-        hillshade_alpha: float = 1.0,
         indices: Sequence[int] | np.ndarray | None = None,
         outfile: str | Path | None = None,
         quality: Literal["low", "medium", "high"] = "medium",
@@ -2595,12 +2477,18 @@ class Animate:
         display_inline: bool = True,
         **kwargs: Any,
     ) -> None:
+        # Snapshot the arguments first: a local created before this line would
+        # otherwise leak into the per-frame GeoPlot options.
+        options = dict(locals())
+        extra = options.pop("kwargs")
+        vector_field = VectorField.coerce(options.pop("vectors"))
         self.dim = dim
+        self.vectors = vector_field
         self.data, self.u_component, self.v_component = validate_animation_inputs(
             dim,
             da,
-            u_component,
-            v_component,
+            None if vector_field is None else vector_field.u,
+            None if vector_field is None else vector_field.v,
         )
         if fps < 1:
             raise ValueError("fps must be greater than or equal to 1")
@@ -2632,60 +2520,15 @@ class Animate:
         self.title = title or ""
         self.frame_id = frame_id
 
-        self.geo_options: dict[str, Any] = {
-            "x": x,
-            "y": y,
-            "col": col,
-            "row": row,
-            "col_wrap": col_wrap,
-            "figsize": figsize,
-            "sharex": sharex,
-            "sharey": sharey,
-            "method": method,
-            "projection": projection,
-            "cmap": cmap,
-            "norm": norm,
-            "vmin": vmin,
-            "vmax": vmax,
-            "units": units,
-            "levels": levels,
-            "extend": extend,
-            "robust": robust,
-            "symmetrical": symmetrical,
-            "rasterized": rasterized,
-            "cbar_orientation": cbar_orientation,
-            "add_colorbar": add_colorbar,
-            "cbar_drawedges": cbar_drawedges,
-            "cbar_label": cbar_label,
-            "cbar_minimal_ticks": cbar_minimal_ticks,
-            "cbar_scalar_formatter": cbar_scalar_formatter,
-            "map_global_extent": map_global_extent,
-            "set_map_extent": set_map_extent,
-            "map_ticks": map_ticks,
-            "map_xtick_bins": map_xtick_bins,
-            "map_ytick_bins": map_ytick_bins,
-            "add_grid_bounds": add_grid_bounds,
-            "add_coastlines": add_coastlines,
-            "add_borders": add_borders,
-            "add_states": add_states,
-            "add_ocean": add_ocean,
-            "add_land": add_land,
-            "add_lakes": add_lakes,
-            "add_rivers": add_rivers,
-            "cbar_kwargs": cbar_kwargs,
-            "quiver_kwargs": quiver_kwargs,
-            "clabel": clabel,
-            "clabel_fmt": clabel_fmt,
-            "clabel_fontsize": clabel_fontsize,
-            "clabel_inline": clabel_inline,
-            "clabel_colors": clabel_colors,
-            "clabel_kwargs": clabel_kwargs,
-            "cyclic": cyclic,
-            "hillshade": hillshade,
-            "hillshade_vert_exag": hillshade_vert_exag,
-            "hillshade_alpha": hillshade_alpha,
-        }
-        self.geo_options.update(kwargs)
+        # GeoPlot arguments only. The full-length da is replaced by one frame and
+        # the title is formatted per frame, so neither is stored.
+        self.geo_options = (
+            exclude_key(["da", "title"], get_function_inputs(GeoPlot, options)) | extra
+        )
+        # u and v are selected per frame; only their styling is shared.
+        self.geo_options["vector_style"] = (
+            None if vector_field is None else vector_field.style()
+        )
         self.display_result: Any | None = None
         self.run()
 
@@ -2878,43 +2721,20 @@ def geoplot(
     levels: int | Sequence[float] | np.ndarray | None = None,
     extend: Literal["neither", "both", "min", "max"] | None = None,
     robust: bool = False,
+    symmetrical: bool = False,
     rasterized: bool = False,
     title: str | dict | None = None,
-    cbar_orientation: Literal["vertical", "horizontal"] | None = None,
-    add_colorbar: bool = True,
-    cbar_drawedges: bool = True,
-    cbar_label: str | None = None,
-    cbar_minimal_ticks: bool = True,
-    cbar_scalar_formatter: bool = True,
-    map_global_extent: bool = False,
-    set_map_extent: tuple[float, float, float, float] | None = None,
-    map_ticks: bool = False,
-    map_xtick_bins: int = 5,
-    map_ytick_bins: int = 5,
-    add_grid_bounds: bool = False,
-    add_coastlines: bool = True,
-    add_borders: bool = True,
-    add_states: bool = True,
-    add_ocean: bool = True,
-    add_land: bool = True,
-    add_lakes: bool = False,
-    add_rivers: bool = False,
-    p_value: xr.DataArray | None = None,
-    pvalue_kwargs: Mapping[str, Any] | None = None,
-    u_component: xr.DataArray | None = None,
-    v_component: xr.DataArray | None = None,
-    quiver_kwargs: Mapping[str, Any] | None = None,
-    cbar_kwargs: Mapping[str, Any] | None = None,
-    clabel: bool = False,
-    clabel_fmt: str | Mapping[float, str] = "%1.0f",
-    clabel_fontsize: float = 8.0,
-    clabel_inline: bool = True,
-    clabel_colors: str | Sequence[str] | None = None,
-    clabel_kwargs: Mapping[str, Any] | None = None,
+    colorbar: bool = True,
+    colorbar_label: str | None = None,
+    colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
+    colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
+    features: MapFeatures | dict[str, Any] | None = None,
+    map_ticks: bool | MapTicks | dict[str, Any] = False,
+    significance: Significance | dict[str, Any] | None = None,
+    vectors: VectorField | dict[str, Any] | None = None,
+    clabel: bool | ContourLabels | dict[str, Any] = False,
+    hillshade: bool | Hillshade | dict[str, Any] = False,
     cyclic: bool = False,
-    hillshade: bool = False,
-    hillshade_vert_exag: float = 5.0,
-    hillshade_alpha: float = 1.0,
     **kwargs: Any,
 ) -> GeoPlot:
     """Create a fully typed :class:`GeoPlot` container.
@@ -2944,54 +2764,42 @@ def geoplot(
         Base scalar and colorbar configuration.
     robust, rasterized : bool, default False
         Base scalar rendering options.
+    symmetrical : bool, default False
+        Use symmetrical color limits around zero where supported.
     title : str | Dict, default None
         Plot title. if dict provide options accepted by plt.title or figure.suptitle
-    cbar_orientation : {"vertical", "horizontal"}, optional
-        Base colorbar orientation.
-    add_colorbar, cbar_drawedges : bool
-        Base colorbar controls.
-    cbar_label : str, optional
+    colorbar : bool, default True
+        Add a base colorbar for scalar plots other than line contours.
+        Line contours use inline contour labels instead.
+    colorbar_label : str, optional
         Explicit base colorbar label.
-    cbar_minimal_ticks : bool, default True
-        If True, reduce the number of ticks skipping every other one when possible.
-    cbar_scalar_formatter : bool, default True
-        Format automatic colorbar tick labels with a math-text ``ScalarFormatter``.
-        If False, keep the default Matplotlib formatter.
-    map_global_extent : bool, default False
-        Use a global map extent.
-    map_ticks : bool, default False
-        Draw longitude and latitude ticks.
-    map_xtick_bins : float, default 5
-        Maximum number of longitude tick intervals.
-    map_ytick_bins : float, default 5
-        Maximum number of latitude tick intervals.
-    add_grid_bounds : bool
-        If True, draw an outline along the outer perimeter of the plotted grid domain.
-    set_map_extent : tuple of float, optional
-        Explicit geographic extent.
-    add_coastlines, add_borders, add_states, add_ocean, add_land, add_lakes, add_rivers : bool
-        Map-feature switches.
-    p_value : xarray.DataArray, optional
-        Pointwise significance field.
-    pvalue_kwargs : mapping, optional
-        Significance-layer options.
-    u_component, v_component : xarray.DataArray, optional
-        Vector components.
-    quiver_kwargs : mapping, optional
-        Vector-layer options.
-    cbar_kwargs : mapping, optional
-        Base colorbar tick options.
-    clabel, clabel_fmt, clabel_fontsize, clabel_inline, clabel_colors, clabel_kwargs
-        Line-contour label controls.
-    hillshade : bool, default False
-        Draw grayscale relief beneath the field. The field uses alpha=0.4
-        unless an explicit alpha is supplied. Shading is computed per
-        facet and animation frame with light azimuth 315 and altitude 45.
-    hillshade_alpha : float, default 1.0
-        Opacity of the grayscale hillshade layer, between zero and one.
-    hillshade_vert_exag : float, default 5.0
-        Vertical exaggeration passed to Matplotlib LightSource.hillshade.
-        Uses unit pixel spacing; horizontal distances are not in metres.
+    colorbar_orientation : {"vertical", "horizontal"}, optional
+        Base colorbar orientation. Vertical when omitted.
+    colorbar_style : ColorbarStyle or dict, optional
+        Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
+        ``ticks`` and ``tick_labels``.
+    features : MapFeatures or dict, optional
+        Map features and extent: ``coastlines``, ``borders``, ``states``,
+        ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
+        ``extent`` and ``grid_bounds``.
+    map_ticks : bool, MapTicks or dict, default False
+        Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
+        and ``ybins``.
+    significance : Significance or dict, optional
+        Pointwise p-values (``pvalues``) drawn as significance markers.
+        Marker styling fields are documented on :class:`Significance`.
+    vectors : VectorField or dict, optional
+        Vector components ``u`` and ``v`` drawn as a quiver layer.
+        Arrow styling fields are documented on :class:`VectorField`.
+    clabel : bool, ContourLabels or dict, default False
+        Label line contours. Line contours are always labelled.
+        Label fields are documented on :class:`ContourLabels`.
+    hillshade : bool, Hillshade or dict, default False
+        Draw grayscale relief beneath the field in the plot. ``True`` uses the
+        :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
+        exaggeration 1 and physical cell spacing for degree and metre grids.
+        The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+        Shading is computed per facet and animation frame.
     cyclic : bool, default False
         Append a cyclic horizontal point.
     **kwargs
@@ -3043,41 +2851,19 @@ def animate(
     levels: int | Sequence[float] | np.ndarray | None = None,
     extend: Literal["neither", "both", "min", "max"] | None = None,
     robust: bool = False,
+    symmetrical: bool = False,
     rasterized: bool = False,
     title: str | None = None,
-    cbar_orientation: Literal["vertical", "horizontal"] | None = None,
-    add_colorbar: bool = True,
-    cbar_drawedges: bool = True,
-    cbar_label: str | None = None,
-    cbar_minimal_ticks: bool = True,
-    cbar_scalar_formatter: bool = True,
-    map_global_extent: bool = False,
-    set_map_extent: tuple[float, float, float, float] | None = None,
-    map_ticks: bool = False,
-    map_xtick_bins: int = 5,
-    map_ytick_bins: int = 5,
-    add_grid_bounds: bool = False,
-    add_coastlines: bool = True,
-    add_borders: bool = True,
-    add_states: bool = True,
-    add_ocean: bool = True,
-    add_land: bool = True,
-    add_lakes: bool = False,
-    add_rivers: bool = False,
-    u_component: xr.DataArray | None = None,
-    v_component: xr.DataArray | None = None,
-    cbar_kwargs: Mapping[str, Any] | None = None,
-    quiver_kwargs: Mapping[str, Any] | None = None,
-    clabel: bool = False,
-    clabel_fmt: str | Mapping[float, str] = "%1.0f",
-    clabel_fontsize: float = 8.0,
-    clabel_inline: bool = True,
-    clabel_colors: str | Sequence[str] | None = None,
-    clabel_kwargs: Mapping[str, Any] | None = None,
+    colorbar: bool = True,
+    colorbar_label: str | None = None,
+    colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
+    colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
+    features: MapFeatures | dict[str, Any] | None = None,
+    map_ticks: bool | MapTicks | dict[str, Any] = False,
+    vectors: VectorField | dict[str, Any] | None = None,
+    clabel: bool | ContourLabels | dict[str, Any] = False,
+    hillshade: bool | Hillshade | dict[str, Any] = False,
     cyclic: bool = False,
-    hillshade: bool = False,
-    hillshade_vert_exag: float = 5.0,
-    hillshade_alpha: float = 1.0,
     indices: Sequence[int] | np.ndarray | None = None,
     outfile: str | Path | None = None,
     quality: Literal["low", "medium", "high"] = "medium",
@@ -3108,33 +2894,39 @@ def animate(
         Per-frame scalar styling.
     robust, rasterized : bool, default False
         Per-frame scalar rendering options.
+    symmetrical : bool, default False
+        Use symmetrical color limits around zero where supported.
     title : str, optional
         Frame-title prefix.
-    cbar_orientation, add_colorbar, cbar_drawedges, cbar_label, cbar_kwargs, cbar_minimal_ticks, cbar_scalar_formatter : optional
-        Per-frame colorbar options.
-    map_global_extent, set_map_extent, add_coastlines, add_borders, add_states, add_ocean, add_land, add_lakes, add_rivers
-        Per-frame map-feature options.
-    map_ticks : bool, default False
-        Draw longitude and latitude ticks.
-    map_xtick_bins : float, default 5
-        Maximum number of longitude tick intervals.
-    map_ytick_bins : float, default 5
-        Maximum number of latitude tick intervals.
-    add_grid_bounds:
-        If True, draw an outline along the outer perimeter of the plotted grid domain.
-    u_component, v_component, quiver_kwargs : optional
-        Per-frame vector layer.
-    clabel, clabel_fmt, clabel_fontsize, clabel_inline, clabel_colors, clabel_kwargs
-        Per-frame line-contour label options.
-    hillshade : bool, default False
-        Draw grayscale relief beneath the field. The field uses alpha=0.4
-        unless an explicit alpha is supplied. Shading is computed per
-        facet and animation frame with light azimuth 315 and altitude 45.
-    hillshade_alpha : float, default 1.0
-        Opacity of the grayscale hillshade layer, between zero and one.
-    hillshade_vert_exag : float, default 5.0
-        Vertical exaggeration passed to Matplotlib LightSource.hillshade.
-        Uses unit pixel spacing; horizontal distances are not in metres.
+    colorbar : bool, default True
+        Add a base colorbar for scalar plots other than line contours.
+        Line contours use inline contour labels instead.
+    colorbar_label : str, optional
+        Explicit base colorbar label.
+    colorbar_orientation : {"vertical", "horizontal"}, optional
+        Base colorbar orientation. Vertical when omitted.
+    colorbar_style : ColorbarStyle or dict, optional
+        Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
+        ``ticks`` and ``tick_labels``.
+    features : MapFeatures or dict, optional
+        Map features and extent: ``coastlines``, ``borders``, ``states``,
+        ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
+        ``extent`` and ``grid_bounds``.
+    map_ticks : bool, MapTicks or dict, default False
+        Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
+        and ``ybins``.
+    vectors : VectorField or dict, optional
+        Vector components ``u`` and ``v`` drawn as a quiver layer. Both must contain the animation dimension and are selected per frame.
+        Arrow styling fields are documented on :class:`VectorField`.
+    clabel : bool, ContourLabels or dict, default False
+        Label line contours. Line contours are always labelled.
+        Label fields are documented on :class:`ContourLabels`.
+    hillshade : bool, Hillshade or dict, default False
+        Draw grayscale relief beneath the field in each frame. ``True`` uses the
+        :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
+        exaggeration 1 and physical cell spacing for degree and metre grids.
+        The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+        Shading is computed per facet and animation frame.
     cyclic : bool, default False
         Append a cyclic horizontal point.
     indices : sequence of int, optional

@@ -45,40 +45,51 @@ plot = t2m.xgeo.geoplot(
 
 The functional plotting entry point is `xgeo.plot.geoplot(t2m, ...)`.
 
-Colorbar tick labels are formatted with a math-text `ScalarFormatter` by default. Pass `cbar_scalar_formatter=False` to `geoplot` or `animate` (accessor or functional form) to keep Matplotlib's default formatter:
+Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection`, `colorbar`, `colorbar_label`, `colorbar_orientation` and others) are plain keywords. Rarely changed settings are grouped into small frozen dataclasses, available as `xg.Hillshade` or `xg.plot.Hillshade`, `xg.plot.MapFeatures` and so on, and accepted by `geoplot` and `animate` in accessor and functional form. Each grouped parameter also accepts a plain `dict` with the same keys. Every field is named and typed; the classes take no open-ended keyword arguments, and an unknown key raises `TypeError`.
+
+| Parameter | Class | Fields |
+| --- | --- | --- |
+| `colorbar_style` | `ColorbarStyle` | `drawedges`, `minimal_ticks`, `scalar_formatter`, `ticks`, `tick_labels` |
+| `features` | `MapFeatures` | `coastlines`, `borders`, `states`, `ocean`, `land`, `lakes`, `rivers`, `global_extent`, `extent`, `grid_bounds` |
+| `map_ticks` | `MapTicks` | `xbins`, `ybins` |
+| `clabel` | `ContourLabels` | `fmt`, `fontsize`, `inline`, `colors`, `levels`, `inline_spacing`, `rightside_up`, `use_clabeltext`, `manual`, `zorder` |
+| `hillshade` | `Hillshade` | `vert_exag`, `azimuth`, `altitude`, `alpha`, `field_alpha`, `cmap`, `spacing` |
+| `significance` | `Significance` | `pvalues`, `level`, `color`, `alpha`, `marker`, `edgecolors`, `subsample`, `size`, `zorder` (`geoplot` only) |
+| `vectors` | `VectorField` | `u`, `v`, `subsample`, `add_key`, `key_magnitude`, `key_units`, `powerlimits`, `scale`, `scale_units`, `units`, `color`, `width`, `headwidth`, `headlength`, `headaxislength`, `minshaft`, `minlength`, `pivot`, `alpha`, `zorder` |
 
 ```python
-ds["topo"].xgeo.geoplot(cmap="terrain", cbar_scalar_formatter=False)
+ds["topo"].xgeo.geoplot(
+    cmap="terrain",
+    features=xg.MapFeatures(states=False, lakes=True),
+    colorbar_style=xg.ColorbarStyle(scalar_formatter=False),
+    map_ticks=xg.MapTicks(xbins=4),
+)
+t2m.xgeo.geoplot(
+    method="contour",
+    clabel=xg.ContourLabels(fmt="%.1f", fontsize=7),
+    vectors=xg.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), color="k"),
+)
 ```
 
 Enable hillshade to draw grayscale relief beneath a semitransparent scalar field:
 
 ```python
+ds["topo"].xgeo.geoplot(hillshade=True, cmap="terrain", robust=True)
 ds["topo"].xgeo.geoplot(
-    hillshade=True, hillshade_vert_exag=10, hillshade_alpha=1.0,
-    cmap="terrain", robust=True,
+    hillshade=xg.Hillshade(azimuth=270, altitude=35, vert_exag=2), cmap="terrain"
 )
-ds["topo"].xgeo.animate(
-    dim="time", hillshade=True, hillshade_vert_exag=10, hillshade_alpha=1.0,
-    cmap="terrain", robust=True,
-)
+ds["topo"].xgeo.animate(dim="time", hillshade=True, cmap="terrain", robust=True)
 ```
 
-These arguments also work with `xgeo.plot.geoplot` and `xgeo.plot.animate`,
-including facets. Hillshade defaults to `False`, and vertical exaggeration to
-`5.0`. Shading uses Matplotlib's `LightSource` with azimuth 315 degrees, altitude
-45 degrees, and unit pixel spacing. The original field retains its colormap and
-colorbar and uses `alpha=0.4` unless explicitly supplied. `hillshade_alpha`
-controls the grayscale layer's opacity and defaults to `1.0`. No additional
-dependency is required. This provides visual relief without converting
-horizontal grid spacing to physical distances.
+`Hillshade` defaults to azimuth 315 and altitude 45 degrees, vertical exaggeration 1 and `spacing="auto"`. The surface gradient needs the horizontal cell size in the unit of the elevation. With `"auto"`, a degree grid is converted to metres from the mean cell step and the mean latitude, and projected coordinates in metres or kilometres are used as metres, so the elevation is assumed to be in metres. Grids with other or unknown units fall back to `"pixel"` (unit spacing), which makes the shading depend on grid resolution; pass `spacing=(dx, dy)` to set it explicitly. `alpha` is the opacity of the grayscale layer (default 1) and `field_alpha` the opacity given to the field (default 0.4, `None` to leave it unchanged, an explicit `alpha=` argument takes precedence). The field keeps its colormap and colorbar. Shading is computed per facet and animation frame with Matplotlib's `LightSource`.
 
 The computation is also available separately for a two-dimensional `(y, x)` field:
 
 ```python
-from xgeo.viz.plot_utils import compute_hillshade_matplotlib
+from xgeo.viz.plot_utils import compute_hillshade, hillshade_spacing
 
-shaded = compute_hillshade_matplotlib(ds["topo"], z_factor=10)
+dx, dy = hillshade_spacing(ds["topo"], x="lon", y="lat")
+shaded = compute_hillshade(ds["topo"], z_factor=1, dx=dx, dy=dy)
 ```
 
 ## Geospatial and statistical tools

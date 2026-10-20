@@ -328,6 +328,7 @@ def colorbar(
     tick_labels: Sequence[str] | None = None,
     powerlimits: tuple[int, int] = (-3, 3),
     minimal_ticks: bool | None = None,
+    scalar_formatter: bool = True,
     **kwargs,
 ) -> Colorbar:
     """Add a colorbar for a scalar plotting primitive.
@@ -369,6 +370,9 @@ def colorbar(
         Scientific notation limits for automatic tick formatting.
     minimal_ticks : bool, default True
         If True, reduce the number of ticks skipping every other one when possible.
+    scalar_formatter : bool, default True
+        Format automatic tick labels with a math-text ``ScalarFormatter`` using
+        *powerlimits*. If False, keep the default Matplotlib formatter.
 
     **kwargs
         Additional keyword arguments passed directly to ``Figure.colorbar``.
@@ -955,6 +959,9 @@ class GeoPlot:
         Explicit base colorbar label.
     cbar_minimal_ticks : bool, default True
          If True, reduce the number of ticks skipping every other one when possible.
+    cbar_scalar_formatter : bool, default True
+        Format automatic colorbar tick labels with a math-text ``ScalarFormatter``.
+        If False, keep the default Matplotlib formatter.
     map_global_extent : bool, default False
         Use a global map extent.
     set_map_extent : tuple of float, optional
@@ -1066,6 +1073,7 @@ class GeoPlot:
         cbar_drawedges: bool = True,
         cbar_label: str | None = None,
         cbar_minimal_ticks: bool = True,
+        cbar_scalar_formatter: bool = True,
         map_global_extent: bool = False,
         set_map_extent: tuple[float, float, float, float] | None = None,
         map_ticks: bool = False,
@@ -1335,6 +1343,7 @@ class GeoPlot:
                 ticks=ticks,
                 tick_labels=tick_labels,
                 minimal_ticks=cbar_minimal_ticks,
+                scalar_formatter=cbar_scalar_formatter,
             )
 
         self.figure.canvas.draw()
@@ -2226,6 +2235,7 @@ class Adder:
         ticks: Sequence[float] | np.ndarray | None = None,
         tick_labels: Sequence[str] | None = None,
         minimal_ticks: bool | None = True,
+        scalar_formatter: bool = True,
     ) -> GeoPlot:
         """Add a colorbar for an existing scalar primitive.
 
@@ -2248,6 +2258,9 @@ class Adder:
             Explicit tick labels.
         minimal_ticks : bool, default True
              If True, reduce the number of ticks skipping every other one when possible.
+        scalar_formatter : bool, default True
+            Format automatic tick labels with a math-text ``ScalarFormatter``.
+            If False, keep the default Matplotlib formatter.
 
         Returns
         -------
@@ -2267,6 +2280,7 @@ class Adder:
             ticks=ticks,
             tick_labels=tick_labels,
             minimal_ticks=minimal_ticks,
+            scalar_formatter=scalar_formatter,
         )
         self._plot.colorbar = colorbar
         self._plot.register_layer("colorbar", [colorbar])
@@ -2386,6 +2400,9 @@ class Animate:
         Base colorbar label.
     cbar_minimal_ticks : bool, default True
          If True, reduce the number of ticks skipping every other one when possible.
+    cbar_scalar_formatter : bool, default True
+        Format automatic colorbar tick labels with a math-text ``ScalarFormatter``.
+        If False, keep the default Matplotlib formatter.
     map_global_extent : bool, default False
         Use a global map extent.
     map_ticks : bool, default False
@@ -2482,6 +2499,7 @@ class Animate:
         cbar_drawedges: bool = True,
         cbar_label: str | None = None,
         cbar_minimal_ticks: bool = True,
+        cbar_scalar_formatter: bool = True,
         map_global_extent: bool = False,
         set_map_extent: tuple[float, float, float, float] | None = None,
         map_ticks: bool = False,
@@ -2578,6 +2596,7 @@ class Animate:
             "cbar_drawedges": cbar_drawedges,
             "cbar_label": cbar_label,
             "cbar_minimal_ticks": cbar_minimal_ticks,
+            "cbar_scalar_formatter": cbar_scalar_formatter,
             "map_global_extent": map_global_extent,
             "set_map_extent": set_map_extent,
             "map_ticks": map_ticks,
@@ -2801,6 +2820,7 @@ def geoplot(
     cbar_drawedges: bool = True,
     cbar_label: str | None = None,
     cbar_minimal_ticks: bool = True,
+    cbar_scalar_formatter: bool = True,
     map_global_extent: bool = False,
     set_map_extent: tuple[float, float, float, float] | None = None,
     map_ticks: bool = False,
@@ -2866,6 +2886,9 @@ def geoplot(
         Explicit base colorbar label.
     cbar_minimal_ticks : bool, default True
         If True, reduce the number of ticks skipping every other one when possible.
+    cbar_scalar_formatter : bool, default True
+        Format automatic colorbar tick labels with a math-text ``ScalarFormatter``.
+        If False, keep the default Matplotlib formatter.
     map_global_extent : bool, default False
         Use a global map extent.
     map_ticks : bool, default False
@@ -2950,6 +2973,7 @@ def animate(
     cbar_drawedges: bool = True,
     cbar_label: str | None = None,
     cbar_minimal_ticks: bool = True,
+    cbar_scalar_formatter: bool = True,
     map_global_extent: bool = False,
     set_map_extent: tuple[float, float, float, float] | None = None,
     map_ticks: bool = False,
@@ -3006,7 +3030,7 @@ def animate(
         Per-frame scalar rendering options.
     title : str, optional
         Frame-title prefix.
-    cbar_orientation, add_colorbar, cbar_drawedges, cbar_label, cbar_kwargs, cbar_minimal_ticks : optional
+    cbar_orientation, add_colorbar, cbar_drawedges, cbar_label, cbar_kwargs, cbar_minimal_ticks, cbar_scalar_formatter : optional
         Per-frame colorbar options.
     map_global_extent, set_map_extent, add_coastlines, add_borders, add_states, add_ocean, add_land, add_lakes, add_rivers
         Per-frame map-feature options.

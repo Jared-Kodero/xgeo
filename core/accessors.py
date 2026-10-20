@@ -43,8 +43,7 @@ class GeoBase:
     # -- regridding and masking ------------------------------------------
     def regrid(
         self,
-        grid_out: xr.Dataset | xr.DataArray | None = None,
-        grid_out_resolution: float | None = None,
+        grid_out: xr.Dataset | xr.DataArray | float,
         method: Literal[
             "bilinear",
             "conservative",
@@ -55,26 +54,38 @@ class GeoBase:
         ] = "bilinear",
         unmapped_to_nan: bool = True,
         parallel: bool = False,
+        lat: str = "lat",
+        lon: str = "lon",
+        lat_b: str | None = None,
+        lon_b: str | None = None,
     ) -> xr.Dataset | xr.DataArray:
-        """Regrid onto the horizontal grid of ``grid_out`` or a target resolution.
+        """Regrid onto a rectilinear latitude-longitude grid.
 
         Parameters
         ----------
-        grid_out : xarray.Dataset or xarray.DataArray, optional
-            Object whose 'lat' and 'lon' coordinates define the target grid.
-        grid_out_resolution : float, optional
-            Target grid resolution in degrees if ``grid_out`` is not provided.
+        grid_out : xarray.Dataset, xarray.DataArray or float
+            Object whose one-dimensional ``lat`` and ``lon`` coordinates define
+            the target grid, or a resolution in degrees for a regular grid
+            spanning the extent of the bound object.
         method : {"bilinear", "conservative", "conservative_normed", "patch", "nearest_s2d", "nearest_d2s"}, default "bilinear"
             ESMF regridding method.
         unmapped_to_nan : bool, default True
             Whether to set unmapped target points to NaN.
         parallel : bool, default False
             Build the weights in parallel with Dask.
+        lat, lon : str, default "lat", "lon"
+            Names of the latitude and longitude coordinates. The output uses
+            these names for its one-dimensional coordinates and dimensions.
+        lat_b, lon_b : str, optional
+            Names of the cell-bound variables of a two-dimensional (curvilinear)
+            source grid, as cell corners ``(ny + 1, nx + 1)`` or CF bounds
+            ``(ny, nx, 4)``. Providing both marks the source grid as 2D; the
+            bounds are dropped from the output.
 
         Returns
         -------
         xarray.Dataset or xarray.DataArray
-            The object on the target grid.
+            The object on the one-dimensional target grid.
         """
 
         kwargs = xgeo_core_utils.exclude_key("self", dict(locals()))
@@ -361,6 +372,7 @@ class GeoDataArray(GeoBase):
         cbar_drawedges: bool = True,
         cbar_label: str | None = None,
         cbar_minimal_ticks: bool = True,
+        cbar_scalar_formatter: bool = True,
         map_global_extent: bool = False,
         set_map_extent: tuple[float, float, float, float] | None = None,
         map_ticks: bool = False,
@@ -434,6 +446,9 @@ class GeoDataArray(GeoBase):
             Explicit colorbar label.
         cbar_minimal_ticks : bool, default True
             If True, reduce the number of ticks skipping every other one when possible.
+        cbar_scalar_formatter : bool, default True
+            Format automatic colorbar tick labels with a math-text ``ScalarFormatter``.
+            If False, keep the default Matplotlib formatter.
         map_global_extent, add_grid_bounds : bool
             Control geographic extent and grid-boundary annotations.
         map_ticks : bool, default False
@@ -524,6 +539,7 @@ class GeoDataArray(GeoBase):
         cbar_drawedges: bool = True,
         cbar_label: str | None = None,
         cbar_minimal_ticks: bool = True,
+        cbar_scalar_formatter: bool = True,
         map_global_extent: bool = False,
         set_map_extent: tuple[float, float, float, float] | None = None,
         map_ticks: bool = False,
@@ -601,6 +617,9 @@ class GeoDataArray(GeoBase):
             Explicit colorbar label.
         cbar_minimal_ticks : bool, default True
             If True, reduce the number of ticks skipping every other one when possible.
+        cbar_scalar_formatter : bool, default True
+            Format automatic colorbar tick labels with a math-text ``ScalarFormatter``.
+            If False, keep the default Matplotlib formatter.
         map_global_extent, add_grid_bounds : bool
             Control geographic extent and grid-boundary annotations.
         map_ticks : bool, default False

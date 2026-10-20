@@ -350,7 +350,12 @@ def wrap_lon(
 
 
 def coord_id(coord: xr.DataArray) -> str:
-    """Return a compact description of a regular coordinate."""
+    """Return a compact description of a one- or two-dimensional coordinate."""
+    if coord.ndim > 1:
+        values = np.ascontiguousarray(coord.values, dtype=np.float64)
+        digest = hashlib.blake2b(values.tobytes(), digest_size=8).hexdigest()
+        return f"{'x'.join(map(str, coord.shape))}:{digest}"
+
     dim = coord.dims[0]
     step = float(coord.diff(dim).mean())
     mean = float(coord.mean(dim))
@@ -370,10 +375,28 @@ from typing import Literal
 import xarray as xr
 
 
+def _grid_vertices(bounds: xr.DataArray, name: str, shape: tuple[int, int]) -> np.ndarray:
+    """Return two-dimensional cell-corner vertices with shape ``(ny + 1, nx + 1)``."""
+    import cf_xarray
+
+    ny, nx = shape
+
+    if bounds.ndim == 2 and bounds.shape == (ny + 1, nx + 1):
+        return np.asarray(bounds.values)
+
+    if bounds.ndim == 3 and bounds.shape[:2] == (ny, nx) and bounds.shape[2] == 4:
+        vertices = cf_xarray.bounds_to_vertices(bounds, bounds.dims[-1], order=None)
+        return np.asarray(vertices.values)
+
+    raise ValueError(
+        f"Bounds {name!r} must have shape {(ny + 1, nx + 1)} (cell corners) "
+        f"or {(ny, nx, 4)} (CF bounds); got {bounds.shape}."
+    )
+
+
 def regrid(
     grid_in: xr.Dataset | xr.DataArray,
-    grid_out: xr.Dataset | xr.DataArray | None = None,
-    grid_out_resolution: float | None = None,
+    grid_out: xr.Dataset | xr.DataArray | float,
     method: Literal[
         "bilinear",
         "conservative",
@@ -384,59 +407,131 @@ def regrid(
     ] = "bilinear",
     unmapped_to_nan: bool = True,
     parallel: bool = False,
+    lat: str = "lat",
+    lon: str = "lon",
+    lat_b: str | None = None,
+    lon_b: str | None = None,
 ) -> xr.Dataset | xr.DataArray:
-    """Regrid source data to the destination grid using xESMF."""
+    """Regrid source data onto a rectilinear latitude-longitude grid using xESMF.
+
+    Parameters
+    ----------
+    grid_in : xarray.Dataset or xarray.DataArray
+        Source data. Its latitude and longitude coordinates are named by
+        ``lat`` and ``lon`` and are one-dimensional, or two-dimensional when
+        ``lat_b`` and ``lon_b`` are given.
+    grid_out : xarray.Dataset, xarray.DataArray or float
+        Target grid. An xarray object supplies one-dimensional ``lat`` and
+        ``lon`` coordinates. A number is a resolution in degrees for a regular
+        grid spanning the latitude and longitude extent of ``grid_in``.
+    method : {"bilinear", "conservative", "conservative_normed", "patch", "nearest_s2d", "nearest_d2s"}, default "bilinear"
+        ESMF regridding method.
+    unmapped_to_nan : bool, default True
+        Set target points outside the source domain to NaN.
+    parallel : bool, default False
+        Build the weights in parallel with Dask.
+    lat, lon : str, default "lat", "lon"
+        Names of the latitude and longitude coordinates in ``grid_in`` and,
+        when it is an xarray object, in ``grid_out``. The output uses these
+        names for its one-dimensional coordinates and dimensions.
+    lat_b, lon_b : str, optional
+        Names of the latitude and longitude cell-bound variables of a
+        two-dimensional (curvilinear) source grid, either as cell corners with
+        shape ``(ny + 1, nx + 1)`` or as CF bounds with shape ``(ny, nx, 4)``.
+        Providing both marks ``grid_in`` as two-dimensional. Bounds are required
+        by the conservative methods and are dropped from the output.
+
+    Returns
+    -------
+    xarray.Dataset or xarray.DataArray
+        Data on the one-dimensional target grid.
+    """
 
     import xesmf as xe
 
-    if grid_out is not None and grid_out_resolution is not None:
+    if (lat_b is None) != (lon_b is None):
+        raise ValueError("Provide both `lat_b` and `lon_b` for a 2D grid, or neither.")
+    curvilinear = lat_b is not None
+
+    for name in (lat, lon) + ((lat_b, lon_b) if curvilinear else ()):
+        if name not in grid_in.coords and not (
+            isinstance(grid_in, xr.Dataset) and name in grid_in
+        ):
+            raise ValueError(f"Input grid must contain {name!r}.")
+
+    lat_in = grid_in.coords[lat] if lat in grid_in.coords else grid_in[lat]
+    lon_in = grid_in.coords[lon] if lon in grid_in.coords else grid_in[lon]
+    expected_ndim = 2 if curvilinear else 1
+
+    if lat_in.ndim != expected_ndim or lon_in.ndim != expected_ndim:
+        if curvilinear:
+            raise ValueError(f"{lat!r} and {lon!r} must be 2D when bounds are given.")
         raise ValueError(
-            "Provide either `grid_out` or `grid_out_resolution`, not both."
+            f"{lat!r} and {lon!r} must be 1D; pass `lat_b` and `lon_b` for a 2D grid."
         )
 
-    if grid_out is None and grid_out_resolution is None:
-        raise ValueError("You must provide either `grid_out` or `grid_out_resolution`.")
+    if curvilinear:
+        if lat_in.dims != lon_in.dims:
+            raise ValueError(f"{lat!r} and {lon!r} must share the same dimensions.")
+        horiz_dims = lat_in.dims
+    else:
+        horiz_dims = (lat_in.dims[0], lon_in.dims[0])
 
-    for coord in ("lat", "lon"):
-        if coord not in grid_in.dims:
-            raise ValueError(f"Input grid must contain {coord!r} dimension.")
+    for dim in horiz_dims:
+        if dim not in grid_in.dims:
+            raise ValueError(f"Input grid must contain {dim!r} dimension.")
 
-    if grid_out is None:
-        lat_min = grid_in["lat"].min().item()
-        lat_max = grid_in["lat"].max().item()
-        lon_min = grid_in["lon"].min().item()
-        lon_max = grid_in["lon"].max().item()
-
-        nlat = round((lat_max - lat_min) / grid_out_resolution) + 1
-        nlon = round((lon_max - lon_min) / grid_out_resolution) + 1
-
-        lat_coords = np.linspace(lat_min, lat_max, nlat)
-        lon_coords = np.linspace(lon_min, lon_max, nlon)
-
-        grid_out = xr.Dataset(
-            coords={
-                "lat": lat_coords,
-                "lon": lon_coords,
-            }
+    if isinstance(grid_out, bool) or not isinstance(
+        grid_out, (xr.Dataset, xr.DataArray, int, float)
+    ):
+        raise TypeError(
+            "`grid_out` must be an xarray Dataset/DataArray or a resolution in degrees."
         )
 
-    for coord in ("lat", "lon"):
-        if coord not in grid_out.dims:
-            raise ValueError(f"Output grid must contain {coord!r} dimension.")
+    if isinstance(grid_out, (int, float)):
+        resolution = float(grid_out)
+        if not np.isfinite(resolution) or resolution <= 0:
+            raise ValueError("Grid resolution must be a positive number of degrees.")
+
+        lat_min = float(lat_in.min())
+        lat_max = float(lat_in.max())
+        lon_min = float(lon_in.min())
+        lon_max = float(lon_in.max())
+
+        nlat = round((lat_max - lat_min) / resolution) + 1
+        nlon = round((lon_max - lon_min) / resolution) + 1
+
+        lat_out = np.linspace(lat_min, lat_max, nlat)
+        lon_out = np.linspace(lon_min, lon_max, nlon)
+    else:
+        for name in (lat, lon):
+            if name not in grid_out.coords:
+                raise ValueError(f"Output grid must contain {name!r} coordinate.")
+            if grid_out[name].ndim != 1:
+                raise ValueError(f"Output grid coordinate {name!r} must be 1D.")
+
+        lat_out = grid_out[lat].values
+        lon_out = grid_out[lon].values
 
     in_coords = xr.Dataset(
         coords={
-            "lat": grid_in["lat"],
-            "lon": grid_in["lon"],
+            "lat": (lat_in.dims, lat_in.values),
+            "lon": (lon_in.dims, lon_in.values),
         }
     )
 
-    out_coords = xr.Dataset(
-        coords={
-            "lat": grid_out["lat"],
-            "lon": grid_out["lon"],
-        }
-    )
+    if curvilinear:
+        shape = tuple(grid_in.sizes[dim] for dim in horiz_dims)
+        in_coords["lat_b"] = (
+            ("y_b", "x_b"),
+            _grid_vertices(grid_in[lat_b], lat_b, shape),
+        )
+        in_coords["lon_b"] = (
+            ("y_b", "x_b"),
+            _grid_vertices(grid_in[lon_b], lon_b, shape),
+        )
+
+    out_coords = xr.Dataset(coords={"lat": lat_out, "lon": lon_out})
 
     if isinstance(grid_in, xr.DataArray):
         chunked = grid_in if grid_in.chunks is not None else None
@@ -445,21 +540,21 @@ def regrid(
             (
                 var
                 for var in grid_in.data_vars.values()
-                if var.chunks is not None and "lat" in var.dims and "lon" in var.dims
+                if var.chunks is not None and set(horiz_dims).issubset(var.dims)
             ),
             None,
         )
 
     if chunked is not None:
         chunks = {
-            "lat": chunked.chunksizes["lat"][0],
-            "lon": chunked.chunksizes["lon"][0],
+            "lat": chunked.chunksizes[horiz_dims[0]][0],
+            "lon": chunked.chunksizes[horiz_dims[1]][0],
         }
         output_chunks = chunks
     else:
         chunks = {
-            "lat": grid_in.sizes["lat"],
-            "lon": grid_in.sizes["lon"],
+            "lat": grid_in.sizes[horiz_dims[0]],
+            "lon": grid_in.sizes[horiz_dims[1]],
         }
         output_chunks = None
 
@@ -486,7 +581,20 @@ def regrid(
         unmapped_to_nan=unmapped_to_nan,
     )
 
-    return regridder(grid_in, output_chunks=output_chunks)
+    source = grid_in
+    if curvilinear:
+        source = grid_in.drop_vars([lat_b, lon_b], errors="ignore")
+
+    result = regridder(source, output_chunks=output_chunks)
+
+    rename = {old: new for old, new in (("lat", lat), ("lon", lon)) if old != new}
+    if rename:
+        result = result.drop_vars(
+            [name for name in rename.values() if name in result.coords],
+            errors="ignore",
+        ).rename(rename)
+
+    return result
 
 
 def mask(

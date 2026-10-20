@@ -1363,6 +1363,7 @@ def add_colorbar(
     tick_labels: Sequence[str] | None = None,
     powerlimits: tuple[int, int] = (-3, 3),
     minimal_ticks: bool | None = None,
+    scalar_formatter: bool = True,
     **kwargs,
 ) -> Colorbar:
     """Add a colorbar for a scalar mappable or xarray facet grid.
@@ -1413,6 +1414,9 @@ def add_colorbar(
         Scientific notation limits for automatic tick formatting.
     minimal_ticks : bool, default False
         If True, reduce the number of ticks skipping every other one when possible.
+    scalar_formatter : bool, default True
+        Format automatic tick labels with a math-text ``ScalarFormatter`` using
+        *powerlimits*. If False, keep the default Matplotlib formatter.
     **kwargs
         Additional keyword arguments passed directly to ``Figure.colorbar``.
 
@@ -1495,7 +1499,7 @@ def add_colorbar(
             colorbar.ax.set_xticklabels(tick_labels)
         else:
             colorbar.ax.set_yticklabels(tick_labels)
-    else:
+    elif scalar_formatter:
         formatter = ScalarFormatter(useMathText=True)
         formatter.set_scientific(True)
         formatter.set_powerlimits(powerlimits)

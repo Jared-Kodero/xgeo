@@ -45,17 +45,25 @@ plot = t2m.xgeo.geoplot(
 
 The functional plotting entry point is `xgeo.plot.geoplot(t2m, ...)`.
 
+Colorbar tick labels are formatted with a math-text `ScalarFormatter` by default. Pass `cbar_scalar_formatter=False` to `geoplot` or `animate` (accessor or functional form) to keep Matplotlib's default formatter:
+
+```python
+ds["topo"].xgeo.geoplot(cmap="terrain", cbar_scalar_formatter=False)
+```
+
 ## Geospatial and statistical tools
 
 ```python
 regridded = ds.xgeo.regrid(target_grid, method="bilinear")
+coarse = ds.xgeo.regrid(1.0, method="conservative")
+curvilinear = ds_2d.xgeo.regrid(0.25, lat="lat", lon="lon", lat_b="lat_b", lon_b="lon_b")
 wrapped = ds.xgeo.wrap_lon(convention="-180/180")
 with_lst = ds.xgeo.add_local_solar_time()
 trend = ds["t2m"].xgeo.trends(dim="time")
 correlation = ds["t2m"].xgeo.corr(other, dim="time")
 ```
 
-The functional APIs include `xgeo.regrid`, `xgeo.mask`, `xgeo.sel_transect`, `xgeo.wrap_lon`, `xgeo.add_local_solar_time`, and `xgeo.stats`. Regridding imports `xesmf` on first use. See [`core/accessors.py`](core/accessors.py), [`core/xr_utils.py`](core/xr_utils.py), and [`core/stats.py`](core/stats.py) for signatures.
+The functional APIs include `xgeo.regrid`, `xgeo.mask`, `xgeo.sel_transect`, `xgeo.wrap_lon`, `xgeo.add_local_solar_time`, and `xgeo.stats`. `regrid` takes a target grid as a Dataset or DataArray with one-dimensional `lat` and `lon` coordinates, or as a resolution in degrees spanning the source extent. Coordinate names are set with `lat` and `lon`. Passing both `lat_b` and `lon_b` marks the source as a two-dimensional (curvilinear) grid; the bounds may be cell corners `(ny + 1, nx + 1)` or CF bounds `(ny, nx, 4)`. The output is always a one-dimensional latitude-longitude grid with the bounds dropped. Regridding imports `xesmf` on first use. See [`core/accessors.py`](core/accessors.py), [`core/xr_utils.py`](core/xr_utils.py), and [`core/stats.py`](core/stats.py) for signatures.
 
 Serial NetCDF I/O uses Xarray's native interface, such as `ds.to_netcdf("output.nc")`. The former MPI-backed `.xgeo.append()` and `.xgeo.to_netcdf()` methods and top-level MPI aliases are removed. Use [`xrmpi`](../xrmpi/README.md) directly for distributed arrays and collective NetCDF I/O; xgeo does not import or install it.
 

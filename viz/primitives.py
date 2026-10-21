@@ -74,9 +74,11 @@ __all__ = [
     "get_cax",
     "get_facet_figsize",
     "get_map_aspect",
+    "format_scalar",
     "get_projection",
     "get_quiver_key_mag",
     "hillshade_spacing",
+    "make_scalar_formatter",
     "norm_input",
     "normalize_subsample",
     "plot_field",
@@ -738,6 +740,75 @@ def validate_animation_inputs(
                 "data, u, and v must have identical animation coordinates"
             ) from exc
     return data, u, v
+
+
+def make_scalar_formatter(
+    powerlimits: tuple[int, int] = (-3, 3),
+    *,
+    use_math_text: bool = True,
+    use_offset: bool | None = None,
+) -> ScalarFormatter:
+    """Return the scientific-notation formatter shared by colorbars and quiver keys.
+
+    Parameters
+    ----------
+    powerlimits : tuple of int, default (-3, 3)
+        Decimal exponents ``(lower, upper)`` passed to
+        :meth:`matplotlib.ticker.ScalarFormatter.set_powerlimits`. A tick
+        label or key magnitude whose order of magnitude is at most *lower* or
+        at least *upper* is written in scientific notation.
+    use_math_text : bool, default True
+        Typeset the exponent with mathtext.
+    use_offset : bool, optional
+        Use an offset in addition to the power of ten. Matplotlib's default
+        applies when omitted.
+
+    Returns
+    -------
+    matplotlib.ticker.ScalarFormatter
+        New formatter with scientific notation enabled.
+    """
+    formatter = ScalarFormatter(useOffset=use_offset, useMathText=use_math_text)
+    formatter.set_scientific(True)
+    formatter.set_powerlimits(powerlimits)
+    return formatter
+
+
+def format_scalar(value: float, powerlimits: tuple[int, int] = (-3, 3)) -> str:
+    """Format a single number exactly as a colorbar tick would be formatted.
+
+    The number is passed through the same :class:`~matplotlib.ticker.ScalarFormatter`
+    configuration used by :func:`colorbar`, so a quiver key and a colorbar that
+    share *powerlimits* switch to scientific notation at the same magnitude and
+    use the same ``m x 10^n`` typesetting.
+
+    Parameters
+    ----------
+    value : float
+        Number to format.
+    powerlimits : tuple of int, default (-3, 3)
+        Decimal exponents outside which scientific notation is used.
+
+    Returns
+    -------
+    str
+        Plain text such as ``"200"`` or ``"0.05"``, or mathtext such as
+        ``"$2.5\\times10^{-5}$"``.
+    """
+    value = float(value)
+    if value == 0.0 or not np.isfinite(value):
+        return f"{value:g}"
+    formatter = make_scalar_formatter(
+        powerlimits, use_math_text=False, use_offset=False
+    )
+    formatter.create_dummy_axis()
+    formatter.axis.set_view_interval(min(0.0, value), max(0.0, value))
+    formatter.set_locs([value])
+    significand = formatter(value)
+    exponent = formatter.orderOfMagnitude
+    if exponent == 0:
+        return significand
+    return rf"${significand}\times10^{{{exponent}}}$"
 
 
 def get_quiver_key_mag(u: xr.DataArray, v: xr.DataArray) -> float:
@@ -1585,7 +1656,9 @@ def colorbar(
     tick_labels : sequence of str, optional
         Explicit tick labels.
     powerlimits : tuple of int, default (-3, 3)
-        Scientific notation limits for automatic tick formatting.
+        Decimal exponents ``(lower, upper)`` for scientific notation in the
+        automatic tick labels (see :func:`make_scalar_formatter`). Used only
+        when *scalar_formatter* is True and no explicit labels are given.
     minimal_ticks : bool, optional
         If True, label every other boundary of a colorbar that has more than
         six contour or norm boundaries. Disabled when omitted.
@@ -1675,11 +1748,7 @@ def colorbar(
         else:
             colorbar.ax.set_yticklabels(tick_labels)
     elif scalar_formatter:
-        formatter = ScalarFormatter(useMathText=True)
-        formatter.set_scientific(True)
-        formatter.set_powerlimits(powerlimits)
-
-        colorbar.formatter = formatter
+        colorbar.formatter = make_scalar_formatter(powerlimits)
         colorbar.update_ticks()
 
         if orientation == "vertical":
@@ -1932,7 +2001,9 @@ def plot_quiver(
         attributes are used when omitted.
     powerlimits : tuple of int, default (-3, 3)
         Decimal exponents outside which the key magnitude is written in
-        scientific notation.
+        scientific notation. The label is produced by the same
+        ``ScalarFormatter`` configuration as the colorbar tick labels (see
+        :func:`format_scalar`), so both switch at the same magnitude.
     scale : float, optional
         Matplotlib quiver scale.
     color : str, optional
@@ -2010,12 +2081,7 @@ def plot_quiver(
                 raise ValueError("u and v units must match when adding a quiver key")
             key_units = u_units
 
-        exponent = int(np.floor(np.log10(abs(key_magnitude)))) if key_magnitude else 0
-        if powerlimits[0] < exponent < powerlimits[1]:
-            magnitude_label = f"{key_magnitude:g}"
-        else:
-            mantissa = key_magnitude / 10.0**exponent
-            magnitude_label = rf"${mantissa:g}\times10^{{{exponent}}}$"
+        magnitude_label = format_scalar(key_magnitude, powerlimits)
         label = f"{magnitude_label} {key_units or ''}".strip()
 
         quiver_key = AutoQuiverKey(

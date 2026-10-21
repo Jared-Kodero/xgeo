@@ -3,9 +3,10 @@
 The top level exposes the geospatial and plotting API:
 
 - ``plot``      Cartopy map plotting. Entry point :func:`xgeo.plot.geoplot`.
-- ``Hillshade``, ``MapFeatures``, ``MapTicks``, ``ColorbarStyle``,
-  ``ContourLabels``, ``Significance``, ``VectorField``  Option groups for
-  ``geoplot`` and ``animate``, also available as ``xgeo.plot.<Name>``.
+- ``plot_options``  Option groups for ``geoplot`` and ``animate``:
+  ``Hillshade``, ``MapFeatures``, ``MapTicks``, ``ColorbarStyle``,
+  ``ContourLabels``, ``Significance`` and ``VectorField``, used as
+  ``xgeo.plot_options.Hillshade(...)``.
 - ``regrid``, ``mask``, ``fillgaps``, ``sel_transect``, ``to_lon180``,
   ``add_local_solar_time``  Geospatial operations on xarray objects.
 - ``to_xnpy`` and the ``open_xnpy_*`` readers  Memory-mapped array storage.
@@ -87,35 +88,20 @@ if TYPE_CHECKING:
         wrap_lon,
     )
     from .viz import cmaps, plot
-    from .viz.options import (
-        ColorbarStyle,
-        ContourLabels,
-        Hillshade,
-        MapFeatures,
-        MapTicks,
-        Significance,
-        VectorField,
-    )
+    from .viz import options as plot_options
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("always", module=r"xgeo\..*")
 
 #: Public geospatial, plotting, preprocessing, and storage names.
 __all__ = [
-    "ColorbarStyle",
-    "ContourLabels",
     "DaskProgressBar",
-    "Hillshade",
     "LockFile",
     "LockedLogger",
-    "MapFeatures",
-    "MapTicks",
     "RedirectStreams",
     "SerialProgressBar",
     "SetupDask",
     "SharedMemoryObject",
-    "Significance",
-    "VectorField",
     "add_local_solar_time",
     "cmaps",
     "exclude_key",
@@ -130,6 +116,7 @@ __all__ = [
     "open_xnpy_ndarray",
     "operator",
     "plot",
+    "plot_options",
     "preprocess",
     "regrid",
     "save_grib",
@@ -141,20 +128,13 @@ __all__ = [
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str | None]] = {
-    "ColorbarStyle": (".viz.options", "ColorbarStyle"),
-    "ContourLabels": (".viz.options", "ContourLabels"),
     "DaskProgressBar": (".core.progress", "DaskProgressBar"),
-    "Hillshade": (".viz.options", "Hillshade"),
     "LockFile": (".core.climtools", "LockFile"),
     "LockedLogger": (".core.climtools", "LockedLogger"),
-    "MapFeatures": (".viz.options", "MapFeatures"),
-    "MapTicks": (".viz.options", "MapTicks"),
     "RedirectStreams": (".core.climtools", "RedirectStreams"),
     "SerialProgressBar": (".core.progress", "SerialProgressBar"),
     "SetupDask": (".core.xr_utils", "SetupDask"),
     "SharedMemoryObject": (".core.climtools", "SharedMemoryObject"),
-    "Significance": (".viz.options", "Significance"),
-    "VectorField": (".viz.options", "VectorField"),
     "add_local_solar_time": (".core.xr_utils", "add_local_solar_time"),
     "cmaps": (".viz.cmaps", None),
     "exclude_key": (".core.climtools", "exclude_key"),
@@ -169,6 +149,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str | None]] = {
     "open_xnpy_ndarray": (".core.xnpy", "open_xnpy_ndarray"),
     "operator": (".core.operator", None),
     "plot": (".viz.plot", None),
+    "plot_options": (".viz.options", None),
     "preprocess": (".core.preprocess", None),
     "regrid": (".core.xr_utils", "regrid"),
     "save_grib": (".core.grib_io", "save_grib"),
@@ -204,7 +185,3 @@ except Exception:
 
 apply_widget_css()
 dask.diagnostics.ProgressBar = DaskProgressBar
-
-# from .update import _self_update
-
-# _self_update()

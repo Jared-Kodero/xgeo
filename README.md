@@ -45,11 +45,11 @@ plot = t2m.xgeo.geoplot(
 
 The functional plotting entry point is `xgeo.plot.geoplot(t2m, ...)`.
 
-Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection`, `colorbar`, `colorbar_label`, `colorbar_orientation` and others) are plain keywords. Rarely changed settings are grouped into small frozen dataclasses, available as `xg.Hillshade` or `xg.plot.Hillshade`, `xg.plot.MapFeatures` and so on, and accepted by `geoplot` and `animate` in accessor and functional form. Grouped parameters take an instance of the class, `None`, or a bool where a default group exists (`hillshade=True`, `map_ticks=True`, `clabel=True`). Plain dictionaries are not accepted and raise `TypeError`; construct the class with keyword arguments instead. All fields are keyword-only, named and typed, the classes take no open-ended keyword arguments, and an unknown field raises `TypeError`.
+Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection`, `colorbar`, `colorbar_label`, `colorbar_orientation` and others) are plain keywords. Rarely changed settings are grouped into small frozen dataclasses, available from the `xg.plot_options` namespace (`xg.plot_options.Hillshade`, `xg.plot_options.MapFeatures` and so on), and accepted by `geoplot` and `animate` in accessor and functional form. Grouped parameters take an instance of the class, `None`, or a bool where a default group exists (`hillshade=True`, `map_ticks=True`, `clabel=True`). Plain dictionaries are not accepted and raise `TypeError`; construct the class with keyword arguments instead. All fields are keyword-only, named and typed, the classes take no open-ended keyword arguments, and an unknown field raises `TypeError`.
 
 | Parameter | Class | Fields |
 | --- | --- | --- |
-| `colorbar_style` | `ColorbarStyle` | `drawedges`, `minimal_ticks`, `scalar_formatter`, `ticks`, `tick_labels` |
+| `colorbar_style` | `ColorbarStyle` | `drawedges`, `minimal_ticks`, `scalar_formatter`, `powerlimits`, `ticks`, `tick_labels` |
 | `features` | `MapFeatures` | `coastlines`, `borders`, `states`, `ocean`, `land`, `lakes`, `rivers`, `global_extent`, `extent`, `grid_bounds` |
 | `map_ticks` | `MapTicks` | `xbins`, `ybins` |
 | `clabel` | `ContourLabels` | `fmt`, `fontsize`, `inline`, `colors`, `levels`, `inline_spacing`, `rightside_up`, `use_clabeltext`, `manual`, `zorder` |
@@ -60,14 +60,14 @@ Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection
 ```python
 ds["topo"].xgeo.geoplot(
     cmap="terrain",
-    features=xg.MapFeatures(states=False, lakes=True),
-    colorbar_style=xg.ColorbarStyle(scalar_formatter=False),
-    map_ticks=xg.MapTicks(xbins=4),
+    features=xg.plot_options.MapFeatures(states=False, lakes=True),
+    colorbar_style=xg.plot_options.ColorbarStyle(scalar_formatter=False),
+    map_ticks=xg.plot_options.MapTicks(xbins=4),
 )
 t2m.xgeo.geoplot(
     method="contour",
-    clabel=xg.ContourLabels(fmt="%.1f", fontsize=7),
-    vectors=xg.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), color="k"),
+    clabel=xg.plot_options.ContourLabels(fmt="%.1f", fontsize=7),
+    vectors=xg.plot_options.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), color="k"),
 )
 ```
 
@@ -76,7 +76,7 @@ Enable hillshade to draw grayscale relief beneath a semitransparent scalar field
 ```python
 ds["topo"].xgeo.geoplot(hillshade=True, cmap="terrain", robust=True)
 ds["topo"].xgeo.geoplot(
-    hillshade=xg.Hillshade(azimuth=270, altitude=35, vert_exag=2), cmap="terrain"
+    hillshade=xg.plot_options.Hillshade(azimuth=270, altitude=35, vert_exag=2), cmap="terrain"
 )
 ds["topo"].xgeo.animate(dim="time", hillshade=True, cmap="terrain", robust=True)
 ```
@@ -121,8 +121,8 @@ Plotting is split into three modules under [`viz/`](viz/):
 Overlays are added to an existing plot with `GeoPlot.add` and can be chained. Each call draws on every panel of a faceted plot, records its primitives in `GeoPlot.layers` and returns the plot:
 
 ```python
-plot = t2m.xgeo.geoplot(method="pcolormesh", features=xg.MapFeatures(states=False))
-plot.add.contour(t2m, levels=5, clabel=xg.ContourLabels(fmt="%.0f")).add.grid_boundary()
+plot = t2m.xgeo.geoplot(method="pcolormesh", features=xg.plot_options.MapFeatures(states=False))
+plot.add.contour(t2m, levels=5, clabel=xg.plot_options.ContourLabels(fmt="%.0f")).add.grid_boundary()
 ```
 
 The scalar overlays are `add.plot`, `add.pcolormesh`, `add.contourf`, `add.contour`, `add.imshow` and `add.scatter`, which accepts an `xarray.DataArray` or an `(x, y)` tuple of arrays. `add.quiver`, `add.significance`, `add.colorbar` and `add.grid_boundary` complete the set.

@@ -315,7 +315,7 @@ class TestAnimateOptions:
             monkeypatch,
             vectors=VectorField(u=xr.ones_like(stacked), v=xr.ones_like(stacked), color="k"),
         )
-        assert result.geo_options["vector_style"] == {"color": "k", "zorder": 4.0, "subsample": (1, 1), "add_key": True, "powerlimits": (-3, 3)}
+        assert result.geo_options["vector_style"] == {"color": "k", "zorder": 4.0, "subsample": (1, 1), "add_key": True}
         assert len(captured) == 2
         assert all(args[7] is not None and args[8] is not None for args in captured)
         assert all(args[7].ndim == 2 for args in captured)
@@ -338,10 +338,14 @@ class TestExports:
         "VectorField",
     )
 
-    def test_plot_namespace_and_top_level(self):
+    def test_plot_options_namespace(self):
         import xgeo
+        from xgeo.viz import options
 
+        assert xgeo.plot_options is options
+        assert "plot_options" in xgeo.__all__
         for name in self.names:
-            assert name in plot.__all__
-            assert getattr(plot, name) is getattr(xgeo, name)
-            assert name in xgeo.__all__
+            assert getattr(xgeo.plot_options, name) is getattr(options, name)
+            assert name in options.__all__
+            assert name not in xgeo.__all__
+            assert not hasattr(xgeo, name)

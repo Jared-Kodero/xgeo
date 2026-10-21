@@ -88,15 +88,8 @@ if TYPE_CHECKING:
 __all__ = [
     "Adder",
     "Animate",
-    "ColorbarStyle",
-    "ContourLabels",
     "FacetedPlot",
     "GeoPlot",
-    "Hillshade",
-    "MapFeatures",
-    "MapTicks",
-    "Significance",
-    "VectorField",
     "animate",
     "colorbar",
     "create_figure",
@@ -731,7 +724,9 @@ class GeoPlot:
         Base colorbar orientation. Vertical when omitted.
     colorbar_style : ColorbarStyle, optional
         Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-        ``ticks`` and ``tick_labels``.
+        ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
+        the scientific-notation threshold of the quiver key unless overridden
+        in ``vectors``.
     features : MapFeatures, optional
         Map features and extent: ``coastlines``, ``borders``, ``states``,
         ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
@@ -873,6 +868,8 @@ class GeoPlot:
         self.colorbar: Colorbar | None = None
         self.quiver: Quiver | list[Quiver] | None = None
         self.quiver_key: QuiverKey | None = None
+        #: Scientific-notation limits shared by the colorbar and the quiver key.
+        self.powerlimits: tuple[int, int] = style.powerlimits
         self.faceted_plot: FacetedPlot | None = None
         self.grid: xr.Dataset = self.data.coords.to_dataset()[[self.x, self.y]]
         self.add = Adder(self)
@@ -1036,7 +1033,7 @@ class GeoPlot:
                 u_component,
                 v_component,
                 **options.vectors.style(),
-            )
+            )  # an unset powerlimits falls back to ColorbarStyle.powerlimits
         if colorbar and method != "contour":
             label = colorbar_label
             if label is None:
@@ -1060,6 +1057,7 @@ class GeoPlot:
                 tick_labels=style.tick_labels,
                 minimal_ticks=style.minimal_ticks,
                 scalar_formatter=style.scalar_formatter,
+                powerlimits=style.powerlimits,
             )
 
         self.figure.canvas.draw()
@@ -1656,7 +1654,7 @@ class Adder:
         add_key: bool = True,
         key_magnitude: float | None = None,
         key_units: str | None = None,
-        powerlimits: tuple[int, int] = (-3, 3),
+        powerlimits: tuple[int, int] | None = None,
         scale: float | None = None,
         color: str | None = None,
         width: float | None = None,
@@ -1680,9 +1678,10 @@ class Adder:
         key_units : str, optional
             Units appended to the key label. The key itself is placed
             automatically below the decorations of the bottom-left axis.
-        powerlimits : tuple of int, default (-3, 3)
+        powerlimits : tuple of int, optional
             Order-of-magnitude limits outside which the key label switches to
             scientific notation (see :meth:`ScalarFormatter.set_powerlimits`).
+            Defaults to the plot's colorbar ``powerlimits``.
         scale : float, optional
             Matplotlib quiver scale.
         color : str, optional
@@ -1699,6 +1698,8 @@ class Adder:
         GeoPlot
             Parent plot.
         """
+        if powerlimits is None:
+            powerlimits = self._plot.powerlimits
         u = self._normalized(u)
         v = self._normalized(v)
         validated_u, validated_v = validate_vector_components(u, v)
@@ -1820,6 +1821,7 @@ class Adder:
         tick_labels: Sequence[str] | None = None,
         minimal_ticks: bool | None = True,
         scalar_formatter: bool = True,
+        powerlimits: tuple[int, int] | None = None,
     ) -> GeoPlot:
         """Add a colorbar for an existing scalar primitive.
 
@@ -1845,6 +1847,9 @@ class Adder:
         scalar_formatter : bool, default True
             Format automatic tick labels with a math-text ``ScalarFormatter``.
             If False, keep the default Matplotlib formatter.
+        powerlimits : tuple of int, optional
+            Decimal exponents ``(lower, upper)`` for scientific notation in the
+            tick labels. Defaults to the plot's ``ColorbarStyle.powerlimits``.
 
         Returns
         -------
@@ -1865,6 +1870,7 @@ class Adder:
             tick_labels=tick_labels,
             minimal_ticks=minimal_ticks,
             scalar_formatter=scalar_formatter,
+            powerlimits=self._plot.powerlimits if powerlimits is None else powerlimits,
         )
         self._plot.colorbar = colorbar
         self._plot.register_layer("colorbar", [colorbar])
@@ -1986,7 +1992,9 @@ class Animate:
         Base colorbar orientation. Vertical when omitted.
     colorbar_style : ColorbarStyle, optional
         Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-        ``ticks`` and ``tick_labels``.
+        ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
+        the scientific-notation threshold of the quiver key unless overridden
+        in ``vectors``.
     features : MapFeatures, optional
         Map features and extent: ``coastlines``, ``borders``, ``states``,
         ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
@@ -2394,7 +2402,9 @@ def geoplot(
         Base colorbar orientation. Vertical when omitted.
     colorbar_style : ColorbarStyle, optional
         Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-        ``ticks`` and ``tick_labels``.
+        ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
+        the scientific-notation threshold of the quiver key unless overridden
+        in ``vectors``.
     features : MapFeatures, optional
         Map features and extent: ``coastlines``, ``borders``, ``states``,
         ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
@@ -2524,7 +2534,9 @@ def animate(
         Base colorbar orientation. Vertical when omitted.
     colorbar_style : ColorbarStyle, optional
         Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-        ``ticks`` and ``tick_labels``.
+        ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
+        the scientific-notation threshold of the quiver key unless overridden
+        in ``vectors``.
     features : MapFeatures, optional
         Map features and extent: ``coastlines``, ``borders``, ``states``,
         ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,

@@ -435,7 +435,9 @@ class GeoDataArray(GeoBase):
             Base colorbar orientation. Vertical when omitted.
         colorbar_style : ColorbarStyle, optional
             Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-            ``ticks`` and ``tick_labels``.
+            ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
+            the scientific-notation threshold of the quiver key unless overridden
+            in ``vectors``.
         features : MapFeatures, optional
             Map features and extent: ``coastlines``, ``borders``, ``states``,
             ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
@@ -578,7 +580,9 @@ class GeoDataArray(GeoBase):
             Base colorbar orientation. Vertical when omitted.
         colorbar_style : ColorbarStyle, optional
             Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-            ``ticks`` and ``tick_labels``.
+            ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
+            the scientific-notation threshold of the quiver key unless overridden
+            in ``vectors``.
         features : MapFeatures, optional
             Map features and extent: ``coastlines``, ``borders``, ``states``,
             ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,

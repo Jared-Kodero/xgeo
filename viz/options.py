@@ -212,6 +212,11 @@ class ColorbarStyle(_Option):
         Skip every other tick when the labels would be crowded.
     scalar_formatter : bool, default True
         Format automatic tick labels with a math-text ``ScalarFormatter``.
+    powerlimits : tuple of int, default (-3, 3)
+        Decimal exponents ``(lower, upper)`` for the ``ScalarFormatter``: tick
+        labels whose order of magnitude is at most ``lower`` or at least
+        ``upper`` use scientific notation. Also the default for the quiver key
+        (``VectorField.powerlimits``), so both switch at the same magnitude.
     ticks : sequence of float, optional
         Explicit tick locations.
     tick_labels : sequence of str, optional
@@ -221,6 +226,7 @@ class ColorbarStyle(_Option):
     drawedges: bool = True
     minimal_ticks: bool = True
     scalar_formatter: bool = True
+    powerlimits: tuple[int, int] = (-3, 3)
     ticks: Sequence[float] | None = None
     tick_labels: Sequence[str] | None = None
 
@@ -326,9 +332,11 @@ class VectorField(_Option):
         Reference magnitude of the key. Chosen from the data when omitted.
     key_units : str, optional
         Units appended to the key label.
-    powerlimits : tuple of int, default (-3, 3)
-        Decimal exponents outside which the key magnitude is written in
-        scientific notation.
+    powerlimits : tuple of int, optional
+        Decimal exponents ``(lower, upper)`` outside which the key magnitude is
+        written in scientific notation, formatted by the same
+        ``ScalarFormatter`` as the colorbar. Defaults to
+        ``ColorbarStyle.powerlimits`` (``(-3, 3)`` unless changed).
     scale : float, optional
         Data units per arrow length unit (see ``scale_units``). Larger values
         give shorter arrows.
@@ -361,7 +369,7 @@ class VectorField(_Option):
     add_key: bool = True
     key_magnitude: float | None = None
     key_units: str | None = None
-    powerlimits: tuple[int, int] = (-3, 3)
+    powerlimits: tuple[int, int] | None = None
     scale: float | None = None
     scale_units: Literal["width", "height", "dots", "inches", "x", "y", "xy"] | None = (
         None

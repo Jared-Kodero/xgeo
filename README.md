@@ -49,13 +49,15 @@ Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection
 
 | Parameter | Class | Fields |
 | --- | --- | --- |
-| `colorbar_style` | `ColorbarStyle` | `drawedges`, `minimal_ticks`, `scalar_formatter`, `powerlimits`, `ticks`, `tick_labels` |
-| `features` | `MapFeatures` | `coastlines`, `borders`, `states`, `ocean`, `land`, `lakes`, `rivers`, `global_extent`, `extent`, `grid_bounds` |
-| `map_ticks` | `MapTicks` | `xbins`, `ybins` |
+| `colorbar_style` | `ColorbarStyle` | `drawedges`, `minimal_ticks`, `scalar_formatter`, `powerlimits`, `ticks`, `tick_labels`; advanced: `thickness`, `pad`, `pad_with_labels`, `facet_length`, `minimal_ticks_threshold` |
+| `features` | `MapFeatures` | `coastlines`, `borders`, `states`, `ocean`, `land`, `lakes`, `rivers`, `global_extent`, `extent`, `grid_bounds`; advanced: `resolution`, `coastline_color`, `coastline_linewidth`, `states_alpha`, `borders_alpha`, `boundary_linestyle`, `boundary_color`, `boundary_linewidth`, `boundary_zorder`, `water_color`, `water_zorder`, `land_color`, `ocean_color`, `background_zorder`, `grid_bounds_linewidth`, `grid_bounds_color`, `grid_bounds_zorder` |
+| `map_ticks` | `MapTicks` | `xbins`, `ybins`; advanced: `direction`, `minor_ticks`, `degree_symbol`, `direction_label`, `top_labels`, `right_labels`, `gridlines` |
 | `clabel` | `ContourLabels` | `fmt`, `fontsize`, `inline`, `colors`, `levels`, `inline_spacing`, `rightside_up`, `use_clabeltext`, `manual`, `zorder` |
-| `hillshade` | `Hillshade` | `vert_exag`, `azimuth`, `altitude`, `alpha`, `field_alpha`, `cmap`, `spacing` |
+| `hillshade` | `Hillshade` | `vert_exag`, `azimuth`, `altitude`, `alpha`, `field_alpha`, `cmap`, `spacing`, `method`, `levels`, `vmin`, `vmax`, `fraction`, `zorder_offset`, `rasterized` |
 | `significance` | `Significance` | `pvalues`, `level`, `color`, `alpha`, `marker`, `edgecolors`, `subsample`, `size`, `zorder` (`geoplot` only) |
-| `vectors` | `VectorField` | `u`, `v`, `subsample`, `add_key`, `key_magnitude`, `key_units`, `powerlimits`, `scale`, `scale_units`, `units`, `color`, `width`, `headwidth`, `headlength`, `headaxislength`, `minshaft`, `minlength`, `pivot`, `alpha`, `zorder` |
+| `vectors` | `VectorField` | `u`, `v`, `subsample`, `add_key`, `key_magnitude`, `key_units`, `powerlimits`, `scale`, `scale_units`, `units`, `color`, `width`, `headwidth`, `headlength`, `headaxislength`, `minshaft`, `minlength`, `pivot`, `alpha`, `zorder`, `angles`, `key_fontsize`, `key_gap` |
+
+The fields marked advanced, and the `None`-valued fields of `VectorField`, keep the plotting defaults when left unset, so existing calls are unchanged.
 
 ```python
 ds["topo"].xgeo.geoplot(
@@ -81,7 +83,9 @@ ds["topo"].xgeo.geoplot(
 ds["topo"].xgeo.animate(dim="time", hillshade=True, cmap="terrain", robust=True)
 ```
 
-`Hillshade` defaults to azimuth 315 and altitude 45 degrees, vertical exaggeration 1 and `spacing="auto"`. The surface gradient needs the horizontal cell size in the unit of the elevation. With `"auto"`, a degree grid is converted to metres from the mean cell step and the mean latitude, and projected coordinates in metres or kilometres are used as metres, so the elevation is assumed to be in metres. Grids with other or unknown units fall back to `"pixel"` (unit spacing), which makes the shading depend on grid resolution; pass `spacing=(dx, dy)` to set it explicitly. `alpha` is the opacity of the grayscale layer (default 1) and `field_alpha` the opacity given to the field (default 0.4, `None` to leave it unchanged, an explicit `alpha=` argument takes precedence). The field keeps its colormap and colorbar. Shading is computed per facet and animation frame with Matplotlib's `LightSource`.
+`Hillshade` defaults to azimuth 315 and altitude 45 degrees, vertical exaggeration 1 and `spacing="auto"`. The surface gradient needs the horizontal cell size in the unit of the elevation. With `"auto"`, a degree grid is converted to metres from the mean cell step and the mean latitude, and projected coordinates in metres or kilometres are used as metres, so the elevation is assumed to be in metres. Grids with other or unknown units fall back to `"pixel"` (unit spacing), which makes the shading depend on grid resolution; pass `spacing=(dx, dy)` to set it explicitly. `alpha` is the opacity of the grayscale layer (default 1) and `field_alpha` the opacity given to the field (default 0.65, `None` to leave it unchanged, an explicit `alpha=` argument takes precedence). The field keeps its colormap and colorbar. Shading is computed per facet and animation frame with Matplotlib's `LightSource`.
+
+The relief layer has its own plotting method, independent of the field: `Hillshade(method="pcolormesh")` (the default, `"default"`, gives the same result), `"imshow"` or `"contourf"`, with `levels` setting the bands of `"contourf"`. `vmin` and `vmax` (default 0 and 1) set the illumination range mapped to `cmap`, `fraction` the contrast of the shading, `zorder_offset` how far below the field the relief is drawn (default 0.1) and `rasterized` overrides the field's setting for the relief. On a map whose projection is centred away from 0 degrees longitude, `"imshow"` is placed correctly only when `MapFeatures(extent=...)` is set, which also holds for `method="imshow"` of the field itself.
 
 The computation is also available separately for a two-dimensional `(y, x)` field:
 

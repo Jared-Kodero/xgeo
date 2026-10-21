@@ -233,6 +233,7 @@ def compute_hillshade(
     altitude: float = 45.0,
     dx: float = 1.0,
     dy: float = 1.0,
+    fraction: float = 1.0,
 ) -> xr.DataArray:
     """Compute grayscale relief with Matplotlib, preserving xarray metadata.
 
@@ -252,6 +253,10 @@ def compute_hillshade(
         Positive horizontal cell spacing in the unit of the elevation. The
         default of one makes the result depend on grid resolution; see
         :func:`hillshade_spacing` for physical spacing.
+    fraction : float, default 1.0
+        Contrast of the illumination, passed to
+        :meth:`matplotlib.colors.LightSource.hillshade`. Values above one darken
+        and increase the contrast of the shaded slopes.
 
     Returns
     -------
@@ -266,6 +271,8 @@ def compute_hillshade(
         )
     if not (np.isfinite(dx) and np.isfinite(dy)) or dx <= 0 or dy <= 0:
         raise ValueError("dx and dy must be positive and finite")
+    if not np.isfinite(fraction) or fraction <= 0:
+        raise ValueError("fraction must be positive and finite")
     y, x = da.dims
     # LightSource assumes the first row is north; account for coordinate order.
     sign_x = -1 if x in da.coords and da[x][-1] < da[x][0] else 1
@@ -275,6 +282,7 @@ def compute_hillshade(
         vert_exag=z_factor,
         dx=sign_x * dx,
         dy=sign_y * dy,
+        fraction=fraction,
     )
     return da.copy(data=shaded).where(np.isfinite(da))
 
@@ -1005,11 +1013,50 @@ def add_xy_ticks(
     grid: xr.Dataset,
     xticks_bins: int = 5,
     yticks_bins: int = 5,
+    *,
+    x: str = "lon",
+    y: str = "lat",
+    direction: Literal["out", "in", "inout"] = "out",
+    minor_ticks: bool = False,
+    degree_symbol: str = "",
+    direction_label: bool = False,
+    top_labels: bool = False,
+    right_labels: bool = False,
+    gridlines: bool = False,
 ) -> None:
-    """Add longitude and latitude ticks to a Cartopy axis with numeric signs instead of cardinal letters."""
+    """Add longitude and latitude ticks to a Cartopy axis.
 
-    lon = grid["lon"]
-    lat = grid["lat"]
+    By default the labels are signed numbers without a degree symbol or
+    hemisphere letter, and the tick marks point outward.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure containing ``ax``.
+    ax : cartopy.mpl.geoaxes.GeoAxes
+        Axis to modify.
+    grid : xarray.Dataset
+        Dataset holding the longitude and latitude coordinates ``x`` and ``y``.
+    xticks_bins, yticks_bins : int, default 5
+        Maximum number of longitude and latitude tick intervals.
+    x, y : str, default "lon", "lat"
+        Names of the longitude and latitude coordinates in ``grid``.
+    direction : {"out", "in", "inout"}, default "out"
+        Tick-mark direction.
+    minor_ticks : bool, default False
+        Show minor ticks.
+    degree_symbol : str, default ""
+        Text appended to every tick label.
+    direction_label : bool, default False
+        Append the hemisphere letter (N, S, E, W) to the labels.
+    top_labels, right_labels : bool, default False
+        Label the top and right edges as well as the bottom and left edges.
+    gridlines : bool, default False
+        Draw grid lines through the ticks.
+    """
+
+    lon = grid[x]
+    lat = grid[y]
 
     xticks = MaxNLocator(nbins=xticks_bins).tick_values(
         float(lon.min()), float(lon.max())
@@ -1018,18 +1065,30 @@ def add_xy_ticks(
         float(lat.min()), float(lat.max())
     )
 
-    # Force tick marks to point outward
+    ax.tick_params(axis="both", direction=direction, which="major")
+    if minor_ticks:
+        ax.minorticks_on()
+    else:
+        ax.minorticks_off()
 
-    ax.tick_params(axis="both", direction="out", which="major")
-    ax.minorticks_off()
-
-    fmt_opts = {"direction_label": False, "degree_symbol": ""}
+    fmt_opts = {"direction_label": direction_label, "degree_symbol": degree_symbol}
 
     if isinstance(ax.projection, (ccrs.PlateCarree, ccrs.Mercator)):
         ax.set_xticks(xticks, crs=ccrs.PlateCarree())
         ax.set_yticks(yticks, crs=ccrs.PlateCarree())
         ax.xaxis.set_major_formatter(LongitudeFormatter(**fmt_opts))
         ax.yaxis.set_major_formatter(LatitudeFormatter(**fmt_opts))
+        if top_labels:
+            ax.tick_params(axis="x", top=True, labeltop=True)
+        if right_labels:
+            ax.tick_params(axis="y", right=True, labelright=True)
+        if gridlines:
+            ax.gridlines(
+                crs=ccrs.PlateCarree(),
+                draw_labels=False,
+                xlocs=xticks,
+                ylocs=yticks,
+            )
         return
 
     gridliner = ax.gridlines(
@@ -1038,10 +1097,10 @@ def add_xy_ticks(
         xlocs=xticks,
         ylocs=yticks,
     )
-    gridliner.top_labels = False
-    gridliner.right_labels = False
-    gridliner.xlines = False
-    gridliner.ylines = False
+    gridliner.top_labels = top_labels
+    gridliner.right_labels = right_labels
+    gridliner.xlines = gridlines
+    gridliner.ylines = gridlines
     gridliner.xformatter = LongitudeFormatter(**fmt_opts)
     gridliner.yformatter = LatitudeFormatter(**fmt_opts)
 
@@ -1059,6 +1118,20 @@ def add_map_features(
     rivers: bool = False,
     ocean: bool = True,
     land: bool = True,
+    resolution: Literal["110m", "50m", "10m"] | None = None,
+    coastline_color: str | None = None,
+    coastline_linewidth: float | None = None,
+    states_alpha: float = 0.3,
+    borders_alpha: float = 0.3,
+    boundary_linestyle: str = "-",
+    boundary_color: str | None = None,
+    boundary_linewidth: float | None = None,
+    boundary_zorder: float = 3,
+    water_color: str | None = None,
+    water_zorder: float = 2,
+    land_color: str = "#54585f",
+    ocean_color: str | None = None,
+    background_zorder: float = 0,
 ) -> list[Artist]:
     """Add geographic context to an existing axis.
 
@@ -1077,7 +1150,37 @@ def add_map_features(
     lakes, rivers : bool, default False
         Add inland-water features.
     ocean, land : bool, default True
-        Control land and ocean background fills.
+        Control land and ocean background fills. With ``ocean`` true and ``land``
+        false the land is masked with ``land_color``; with ``land`` true and
+        ``ocean`` false the ocean is masked with ``ocean_color``.
+    resolution : {"110m", "50m", "10m"}, optional
+        Natural Earth scale of every feature. Cartopy's default of ``"110m"``
+        is used when omitted.
+    coastline_color : str, optional
+        Coastline color. Cartopy's default is used when omitted.
+    coastline_linewidth : float, optional
+        Coastline width in points.
+    states_alpha, borders_alpha : float, default 0.3
+        Opacity of the state and country boundaries.
+    boundary_linestyle : str, default "-"
+        Line style of the state and country boundaries.
+    boundary_color : str, optional
+        Color of the state and country boundaries. Cartopy's default is used
+        when omitted.
+    boundary_linewidth : float, optional
+        Width of the state and country boundaries in points.
+    boundary_zorder : float, default 3
+        Drawing order of the state and country boundaries.
+    water_color : str, optional
+        Color of lakes and rivers. Cartopy's default is used when omitted.
+    water_zorder : float, default 2
+        Drawing order of lakes and rivers.
+    land_color : str, default "#54585f"
+        Color of the land mask.
+    ocean_color : str, optional
+        Color of the ocean mask. Cartopy's default is used when omitted.
+    background_zorder : float, default 0
+        Drawing order of the land and ocean masks.
 
     Returns
     -------
@@ -1097,20 +1200,55 @@ def add_map_features(
     if set_extent is not None:
         ax.set_extent(set_extent, crs=ccrs.PlateCarree())
     artists: list[Artist] = []
+
+    def scaled(feature: cfeature.Feature) -> cfeature.Feature:
+        return feature if resolution is None else feature.with_scale(resolution)
+
+    def line_style(**options: Any) -> dict[str, Any]:
+        return {name: value for name, value in options.items() if value is not None}
+
+    boundary = line_style(
+        linestyle=boundary_linestyle,
+        zorder=boundary_zorder,
+        edgecolor=boundary_color,
+        linewidth=boundary_linewidth,
+    )
     feature_specs: tuple[tuple[bool, cfeature.Feature, dict[str, Any]], ...] = (
-        (coastlines, cfeature.COASTLINE, {}),
-        (states, cfeature.STATES, {"linestyle": "-", "alpha": 0.3, "zorder": 3}),
-        (borders, cfeature.BORDERS, {"linestyle": "-", "alpha": 0.3, "zorder": 3}),
-        (lakes, cfeature.LAKES, {"zorder": 2}),
-        (rivers, cfeature.RIVERS, {"zorder": 2}),
+        (
+            coastlines,
+            cfeature.COASTLINE,
+            line_style(edgecolor=coastline_color, linewidth=coastline_linewidth),
+        ),
+        (states, cfeature.STATES, {**boundary, "alpha": states_alpha}),
+        (borders, cfeature.BORDERS, {**boundary, "alpha": borders_alpha}),
+        (
+            lakes,
+            cfeature.LAKES,
+            line_style(zorder=water_zorder, facecolor=water_color, edgecolor=water_color),
+        ),
+        (
+            rivers,
+            cfeature.RIVERS,
+            line_style(zorder=water_zorder, edgecolor=water_color),
+        ),
     )
     for enabled, feature, options in feature_specs:
         if enabled:
-            artists.append(ax.add_feature(feature, **options))
+            artists.append(ax.add_feature(scaled(feature), **options))
     if ocean and not land:
-        artists.append(ax.add_feature(cfeature.LAND, facecolor="#54585f", zorder=0))
+        artists.append(
+            ax.add_feature(
+                scaled(cfeature.LAND), facecolor=land_color, zorder=background_zorder
+            )
+        )
     elif land and not ocean:
-        artists.append(ax.add_feature(cfeature.OCEAN, zorder=0))
+        artists.append(
+            ax.add_feature(
+                scaled(cfeature.OCEAN),
+                zorder=background_zorder,
+                **line_style(facecolor=ocean_color),
+            )
+        )
     return artists
 
 
@@ -1301,6 +1439,10 @@ def get_cax(
     orientation: Literal["vertical", "horizontal"] = "vertical",
     adjust: bool = True,
     pad_bottom: bool | None = None,
+    thickness: float | None = None,
+    pad: float | None = None,
+    pad_with_labels: float | None = None,
+    facet_length: float = 0.5,
 ) -> plt.Axes:
     """
     Create a new set of axes for a colorbar by stealing space from ``axes``.
@@ -1322,6 +1464,19 @@ def get_cax(
     pad_bottom : bool, optional
         Force additional space below a horizontal auxiliary axis. When omitted,
         infer the requirement from visible x-axis labels on the target axis.
+    thickness : float, optional
+        Thickness of the colorbar as a figure fraction on a 5 by 4.8 inch
+        figure; it is rescaled for other figure sizes so that the physical
+        thickness is constant. Default 0.03 (vertical) or 0.04 (horizontal).
+    pad : float, optional
+        Gap between the axes and the colorbar, in the same units as
+        ``thickness``. Default 0.04 (vertical) or 0.05 (horizontal).
+    pad_with_labels : float, optional
+        Gap below the axes of a horizontal colorbar that has tick labels or an
+        x-axis label there. Default ``pad + 0.05`` (0.1 for the default ``pad``).
+    facet_length : float, default 0.5
+        Fraction of the panel grid spanned by the colorbar when there is more
+        than one row (vertical) or column (horizontal).
 
     Returns
     -------
@@ -1388,22 +1543,25 @@ def get_cax(
         scale_h = ref_height / fig_h
 
         if orientation == "vertical":
+            gap = 0.04 if pad is None else pad
+            bar = 0.03 if thickness is None else thickness
             bottommost = y0
             height = y_len
-            rightmost = x1 + 0.04 * scale_w
-            width = 0.03 * scale_w
+            rightmost = x1 + gap * scale_w
+            width = bar * scale_w
             cax = fig.add_axes([rightmost, bottommost, width, height])
 
         elif orientation == "horizontal":
-            y_pad = 0.05
+            y_pad = 0.05 if pad is None else pad
 
             if needs_bottom_padding:
-                y_pad = 0.1
+                y_pad = y_pad + 0.05 if pad_with_labels is None else pad_with_labels
 
+            bar = 0.04 if thickness is None else thickness
             rightmost = x0
             width = x_len
             bottommost = y0 - y_pad * scale_h
-            height = 0.04 * scale_h
+            height = bar * scale_h
             cax = fig.add_axes([rightmost, bottommost, width, height])
 
         return cax
@@ -1448,7 +1606,7 @@ def get_cax(
     # Vertical colorbar: use the full grid height for at most two rows.
     # For larger grids, use 60% of the grid height and center the bar.
     if nrows > 1:
-        vertical_y_len = 0.5 * grid_y_len
+        vertical_y_len = facet_length * grid_y_len
         vertical_y0 = 0.5 * (grid_bottom + grid_top) - 0.5 * vertical_y_len
     else:
         vertical_y_len = grid_y_len
@@ -1457,7 +1615,7 @@ def get_cax(
     # Horizontal colorbar: use one axis width for at most two columns.
     # For larger grids, use 50% of the grid width and center the bar.
     if ncols > 1:
-        horizontal_x_len = 0.5 * grid_x_len
+        horizontal_x_len = facet_length * grid_x_len
     else:
         horizontal_x_len = right_bot_ax.x1 - right_bot_ax.x0
 
@@ -1609,6 +1767,11 @@ def colorbar(
     powerlimits: tuple[int, int] = (-3, 3),
     minimal_ticks: bool | None = None,
     scalar_formatter: bool = True,
+    thickness: float | None = None,
+    pad: float | None = None,
+    pad_with_labels: float | None = None,
+    facet_length: float = 0.5,
+    minimal_ticks_threshold: int = 6,
     **kwargs,
 ) -> Colorbar:
     """Add a colorbar for a scalar mappable or xarray facet grid.
@@ -1665,6 +1828,12 @@ def colorbar(
     scalar_formatter : bool, default True
         Format automatic tick labels with a math-text ``ScalarFormatter`` using
         *powerlimits*. If False, keep the default Matplotlib formatter.
+    thickness, pad, pad_with_labels, facet_length : optional
+        Size and placement of an automatically created colorbar axis; see
+        :func:`get_cax`. Ignored when *cax* is given.
+    minimal_ticks_threshold : int, default 6
+        Number of colour boundaries above which *minimal_ticks* thins the
+        labels.
     **kwargs
         Additional keyword arguments passed directly to ``Figure.colorbar``.
 
@@ -1710,6 +1879,10 @@ def colorbar(
             subplots=subplots,
             adjust=adjust,
             pad_bottom=pad_bottom,
+            thickness=thickness,
+            pad=pad,
+            pad_with_labels=pad_with_labels,
+            facet_length=facet_length,
         )
         cax.set_label("<colorbar>")
 
@@ -1735,7 +1908,7 @@ def colorbar(
         if boundaries is not None:
             boundaries = np.asarray(boundaries, dtype=float)
 
-            if boundaries.size > 6:
+            if boundaries.size > minimal_ticks_threshold:
                 colorbar.locator = FixedLocator(
                     boundaries,
                     nbins=max(boundaries.size - 1, 1),
@@ -1859,9 +2032,11 @@ def plot_field(
     add_labels : bool, default False
         Let xarray add axis labels and a title. Not used for tuple input.
     hillshade : Hillshade, optional
-        Grayscale relief drawn beneath the field at ``zorder - 0.1``. The field
-        uses ``hillshade.field_alpha`` unless ``alpha`` is supplied. Requires
-        ``x`` and ``y`` and gridded input.
+        Grayscale relief drawn beneath the field at
+        ``zorder - hillshade.zorder_offset`` (``0.1`` by default), with the
+        plotting method ``hillshade.method``. The field uses
+        ``hillshade.field_alpha`` unless ``alpha`` is supplied. Requires ``x``
+        and ``y`` and gridded input.
     **kwargs
         Additional keyword arguments forwarded to the xarray plotting method or
         to :meth:`Axes.scatter` for tuple input. For ``"scatter"``, ``size`` is
@@ -1899,20 +2074,24 @@ def plot_field(
             altitude=hillshade.altitude,
             dx=dx,
             dy=dy,
+            fraction=hillshade.fraction,
         )
         plot_field(
-            "default",
+            hillshade.method,
             shaded,
             fig,
             ax,
             x=x,
             y=y,
             cmap=hillshade.cmap,
-            vmin=0,
-            vmax=1,
+            vmin=hillshade.vmin,
+            vmax=hillshade.vmax,
+            levels=hillshade.levels,
             alpha=hillshade.alpha,
-            rasterized=rasterized,
-            zorder=zorder - 0.1,
+            rasterized=(
+                rasterized if hillshade.rasterized is None else hillshade.rasterized
+            ),
+            zorder=zorder - hillshade.zorder_offset,
             **{k: kwargs[k] for k in ("transform", "infer_intervals") if k in kwargs},
         )
         if hillshade.field_alpha is not None:
@@ -1969,6 +2148,9 @@ def plot_quiver(
     color: str | None = None,
     width: float | None = None,
     zorder: float = 4.0,
+    angles: Literal["uv", "xy"] = "xy",
+    key_fontsize: float = 10.0,
+    key_gap: float = AutoQuiverKey.gap_points,
     **kwargs: Any,
 ) -> tuple[Quiver, QuiverKey | None]:
     """Draw vector arrows and optionally add a quiver key.
@@ -2012,6 +2194,12 @@ def plot_quiver(
         Arrow-shaft width.
     zorder : float, default 4
         Drawing order.
+    angles : {"uv", "xy"}, default "xy"
+        Arrow direction convention of :meth:`Axes.quiver`.
+    key_fontsize : float, default 10
+        Font size of the quiver-key label in points.
+    key_gap : float, default 4
+        Gap in points between the key and the lowest axis decoration above it.
     **kwargs
         Additional arguments forwarded to :meth:`Axes.quiver`.
 
@@ -2064,7 +2252,7 @@ def plot_quiver(
         y2d,
         np.asarray(u_selected.values),
         np.asarray(v_selected.values),
-        angles="xy",
+        angles=angles,
         **options,
     )
 
@@ -2093,8 +2281,9 @@ def plot_quiver(
             labelpos="E",
             coordinates="axes",
             zorder=zorder,
-            fontproperties={"size": 10.0},
+            fontproperties={"size": key_fontsize},
         )
+        quiver_key.gap_points = float(key_gap)
         ax.add_artist(quiver_key)
         quiver_key.set_clip_on(False)
         quiver_key.text.set_clip_on(False)

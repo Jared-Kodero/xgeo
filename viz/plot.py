@@ -494,7 +494,7 @@ class FacetedPlot:
                     self.figure,
                     axis,
                     set_extent=features.extent,
-                    **features.arguments(exclude=("extent", "grid_bounds")),
+                    **features.feature_arguments(),
                 )
             )
             if map_ticks is not None:
@@ -502,8 +502,9 @@ class FacetedPlot:
                     self.figure,
                     axis,
                     grid,
-                    xticks_bins=map_ticks.xbins,
-                    yticks_bins=map_ticks.ybins,
+                    x=self.x,
+                    y=self.y,
+                    **map_ticks.tick_arguments(),
                 )
             if features.grid_bounds:
                 add_grid_boundary(
@@ -511,8 +512,7 @@ class FacetedPlot:
                     data[self.x].values,
                     data[self.y].values,
                     transform=ccrs.PlateCarree(),
-                    linewidth=1,
-                    zorder=1,
+                    **features.boundary_arguments(),
                 )
             axis.set_title(self._selector_title(selector))
             self.axis_selectors.append((axis, selector))
@@ -870,6 +870,8 @@ class GeoPlot:
         self.quiver_key: QuiverKey | None = None
         #: Scientific-notation limits shared by the colorbar and the quiver key.
         self.powerlimits: tuple[int, int] = style.powerlimits
+        #: Colorbar styling; ``Adder.colorbar`` falls back to its advanced fields.
+        self.colorbar_style: ColorbarStyle = style
         self.faceted_plot: FacetedPlot | None = None
         self.grid: xr.Dataset = self.data.coords.to_dataset()[[self.x, self.y]]
         self.add = Adder(self)
@@ -954,15 +956,16 @@ class GeoPlot:
                 self.figure,
                 axis,
                 set_extent=map_options.extent,
-                **map_options.arguments(exclude=("extent", "grid_bounds")),
+                **map_options.feature_arguments(),
             )
             if options.map_ticks is not None:
                 add_xy_ticks(
                     self.figure,
                     axis,
                     self.grid,
-                    xticks_bins=options.map_ticks.xbins,
-                    yticks_bins=options.map_ticks.ybins,
+                    x=self.x,
+                    y=self.y,
+                    **options.map_ticks.tick_arguments(),
                 )
             self.artist = plot_field(
                 method,
@@ -989,8 +992,7 @@ class GeoPlot:
                     self.grid[self.x].values,
                     self.grid[self.y].values,
                     transform=ccrs.PlateCarree(),
-                    linewidth=1,
-                    zorder=1,
+                    **map_options.boundary_arguments(),
                 )
 
             if (
@@ -1058,6 +1060,7 @@ class GeoPlot:
                 minimal_ticks=style.minimal_ticks,
                 scalar_formatter=style.scalar_formatter,
                 powerlimits=style.powerlimits,
+                **style.advanced_arguments(),
             )
 
         self.figure.canvas.draw()
@@ -1871,6 +1874,7 @@ class Adder:
             minimal_ticks=minimal_ticks,
             scalar_formatter=scalar_formatter,
             powerlimits=self._plot.powerlimits if powerlimits is None else powerlimits,
+            **self._plot.colorbar_style.advanced_arguments(),
         )
         self._plot.colorbar = colorbar
         self._plot.register_layer("colorbar", [colorbar])

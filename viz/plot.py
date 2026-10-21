@@ -2,7 +2,7 @@
 
 ``GeoPlot`` is the primary container. It receives user arguments, normalizes the
 inputs, creates the figure and axes, delegates drawing to the stateless
-``plot_*`` functions in :mod:`plot_utils`, and stores every resulting primitive.
+functions in :mod:`primitives`, and stores every resulting primitive.
 ``FacetedPlot`` owns facet layout and iteration, ``Adder`` adds reusable layers,
 and ``Animate`` renders a sequence of ``GeoPlot`` objects to an MP4 file.
 """
@@ -36,6 +36,7 @@ from matplotlib.image import AxesImage
 
 from ..core.climtools import exclude_key, nproc, tmp
 from ..core.progress import DaskProgressBar, SerialProgressBar
+from . import primitives
 from .options import (
     ColorbarStyle,
     ContourLabels,
@@ -46,30 +47,23 @@ from .options import (
     VectorField,
     resolve_options,
 )
-from .plot_utils import add_colorbar as _add_colorbar
-from .plot_utils import (
+from .primitives import (
     add_contour_labels,
     add_cyclic_point,
     add_grid_boundary,
     add_map_features,
     add_xy_ticks,
-    compute_hillshade,
+    colorbar,
     enable_interactive_features,
     fmt_anim_title,
     get_facet_figsize,
     get_function_inputs,
     get_projection,
     get_quiver_key_mag,
-    hillshade_spacing,
     interactive_backend,
     norm_input,
-    plot_contour,
-    plot_contourf,
-    plot_default,
-    plot_imshow,
-    plot_pcolormesh,
+    plot_field,
     plot_quiver,
-    plot_scatter,
     plot_significance,
     resolve_cmap_params,
     select_facet,
@@ -87,9 +81,9 @@ if TYPE_CHECKING:
     from matplotlib.colorbar import Colorbar
     from matplotlib.colors import Colormap, Normalize
     from matplotlib.figure import Figure
+    from matplotlib.lines import Line2D
     from matplotlib.quiver import Quiver, QuiverKey
     from matplotlib.text import Text
-    from xarray.plot.facetgrid import FacetGrid
 
 __all__ = [
     "Adder",
@@ -104,15 +98,13 @@ __all__ = [
     "Significance",
     "VectorField",
     "animate",
+    "colorbar",
     "create_figure",
     "geoplot",
     "theme",
 ]
 
 set_preview_quality()
-
-
-#: Cartopy projections accepted by the map-drawing helpers.
 
 
 type AxesType = Axes | cgeo.GeoAxes
@@ -122,7 +114,15 @@ type ScalarPrimitive = (
 
 
 class Theme:
-    """Configure matplotlib and seaborn plotting themes."""
+    """Configure matplotlib and seaborn plotting themes.
+
+    The parameters are those of :func:`theme`, which is the usual way to create
+    an instance. A ``Theme`` can be used as a context manager: the theme is
+    applied on entry and the Matplotlib defaults are restored on exit::
+
+        with xgeo.plot.theme(column_width="single"):
+            xgeo.plot.geoplot(da)
+    """
 
     def __init__(
         self,
@@ -179,8 +179,9 @@ class Theme:
 
         Parameters
         ----------
-        rc_params: dict
-            Matplotlib mpi_context configuration parameters to apply to ``mpl.rcParams``.
+        rc_params : dict, optional
+            Matplotlib rc parameters applied last, after the configured theme
+            and the ``rc_params`` given at construction.
         """
 
         interactive_backend(self.interactive)
@@ -302,8 +303,12 @@ def theme(
     font_size : int or None, optional
         Base font size for text elements. Default is None.
     column_width : {"single", "double"} or None, optional
-        Target layout width. "single" corresponds to 9 cm and "double" corresponds
-        to 18 cm. Overridden when figsize is specified via kwargs. Default is None.
+        Target journal layout width. ``"single"`` sets ``font_scale`` and
+        ``line_width`` to 1 and the default figure size to 4.5 x 4 inches.
+        ``"double"`` sets the default figure size to 7 x 4 inches and keeps
+        ``font_scale`` and ``line_width``. The figure size is the default for
+        single-axis maps; an explicit ``figsize`` takes precedence, and faceted
+        maps infer their size from the domain. Default is None.
     latex : bool, optional
         Enable LaTeX text rendering for all plot text via matplotlib rcParams.
         Requires a working LaTeX installation. Default is False.
@@ -318,93 +323,18 @@ def theme(
         Whether to retain top and right axis spines. Default is True.
     grid : bool, optional
         Whether to display background grid lines. Default is False.
-    rc_params: dict
-            Matplotlib mpi_context configuration parameters to apply to ``mpl.rcParams``.
+    rc_params : dict, optional
+        Matplotlib rc parameters applied after the options above, overriding
+        them where they overlap.
 
     Returns
     -------
     Theme
-        Configured theme object containing updated styling parameters.
+        Configured theme object. Call :meth:`Theme.apply` or use it as a context
+        manager to activate it.
     """
 
     return Theme(**locals())
-
-
-def colorbar(
-    mappable: ScalarMappable | FacetGrid,
-    cax: Axes | None = None,
-    ax: Axes | cgeo.GeoAxes | np.ndarray | None = None,
-    use_gridspec: bool = True,
-    *,
-    fig: Figure | None = None,
-    orientation: Literal["vertical", "horizontal"] = "vertical",
-    subplots: bool = False,
-    adjust: bool = True,
-    pad_bottom: bool | None = None,
-    drawedges: bool = True,
-    extend: Literal["neither", "both", "min", "max"] | None = None,
-    label: str | None = None,
-    ticks: Sequence[float] | np.ndarray | None = None,
-    tick_labels: Sequence[str] | None = None,
-    powerlimits: tuple[int, int] = (-3, 3),
-    minimal_ticks: bool | None = None,
-    scalar_formatter: bool = True,
-    **kwargs,
-) -> Colorbar:
-    """Add a colorbar for a scalar plotting primitive.
-
-    Parameters
-    ----------
-    mappable : matplotlib.cm.ScalarMappable
-        Primitive described by the colorbar.
-    cax : matplotlib.axes.Axes, optional
-        Axes into which the colorbar will be drawn. If ``None``, a new
-        Axes is created and space is stolen from *ax*.
-    ax : matplotlib.axes.Axes or numpy.ndarray, optional
-        Parent Axes from which space for a new colorbar Axes will be stolen.
-    use_gridspec : bool, default True
-        If *cax* is ``None`` and *ax* is positioned with a subplotspec,
-        position *cax* with a subplotspec.
-    fig : matplotlib.figure.Figure, optional
-        Parent figure.
-    orientation : {"vertical", "horizontal"}, default "vertical"
-        Colorbar orientation.
-    subplots : bool, default False
-        Position the colorbar relative to a facet grid.
-    adjust : bool, default True
-        Apply tight layout before creating the colorbar axis.
-    pad_bottom : bool, optional
-        Force additional space below a horizontal colorbar. When omitted,
-        infer the requirement from the target axis labels.
-    drawedges : bool, default False
-        Draw edges between color intervals.
-    extend : {"neither", "both", "min", "max"}, optional
-        Out-of-range extension behavior.
-    label : str, optional
-        Colorbar label.
-    ticks : sequence of float, optional
-        Explicit tick positions.
-    tick_labels : sequence of str, optional
-        Explicit tick labels.
-    powerlimits : tuple of int, default (-3, 3)
-        Scientific notation limits for automatic tick formatting.
-    minimal_ticks : bool, default True
-        If True, reduce the number of ticks skipping every other one when possible.
-    scalar_formatter : bool, default True
-        Format automatic tick labels with a math-text ``ScalarFormatter`` using
-        *powerlimits*. If False, keep the default Matplotlib formatter.
-
-    **kwargs
-        Additional keyword arguments passed directly to ``Figure.colorbar``.
-
-    Returns
-    -------
-    matplotlib.colorbar.Colorbar
-        Created colorbar.
-    """
-    params = locals()
-    kwargs = params.pop("kwargs")
-    return _add_colorbar(**params, **kwargs)
 
 
 def create_figure(
@@ -420,7 +350,35 @@ def create_figure(
     h_pad: float = 8 / 72,
     layout: str | None = None,
 ) -> tuple[Figure, np.ndarray]:
-    """Create a Cartopy figure with consistent facet padding."""
+    """Create a Cartopy figure with consistent facet padding.
+
+    Parameters
+    ----------
+    projection : cartopy.crs.Projection
+        Projection assigned to every axis.
+    figsize : tuple of float, optional
+        Figure size in inches. The Matplotlib default is used when omitted.
+    nrows, ncols : int, default 1
+        Grid shape.
+    squeeze : bool, default False
+        Passed to :func:`matplotlib.pyplot.subplots`. The axes are returned as
+        an object array in either case.
+    sharex, sharey : bool, default True
+        Share horizontal and vertical axis limits across panels.
+    w_pad, h_pad : float
+        Padding around the panels in inches, applied when a layout engine is
+        active.
+    layout : str, optional
+        Matplotlib layout engine, for example ``"compressed"``.
+
+    Returns
+    -------
+    figure : matplotlib.figure.Figure
+        Created figure.
+    axes : numpy.ndarray
+        Object array of axes, with shape ``(nrows, ncols)`` unless ``squeeze``
+        removes singleton dimensions.
+    """
 
     figure, axes = plt.subplots(
         nrows=nrows,
@@ -443,205 +401,6 @@ def create_figure(
         )
 
     return figure, np.asarray(axes, dtype=object)
-
-
-def _plot_scalar(
-    data: xr.DataArray,
-    fig: Figure,
-    ax: AxesType,
-    *,
-    method: Literal[
-        "default", "pcolormesh", "contourf", "contour", "imshow", "scatter"
-    ] = "default",
-    x: str,
-    y: str,
-    cmap: str | Colormap | None = None,
-    norm: Normalize | None = None,
-    vmin: float | None = None,
-    vmax: float | None = None,
-    levels: int | Sequence[float] | np.ndarray | None = None,
-    extend: Literal["neither", "both", "min", "max"] | None = None,
-    robust: bool = False,
-    rasterized: bool = False,
-    zorder: float = 1.0,
-    add_labels: bool = False,
-    hillshade: Hillshade | None = None,
-    **kwargs: Any,
-) -> ScalarPrimitive:
-    """Dispatch one scalar layer to an explicit plotting primitive.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Two-dimensional field.
-    fig : matplotlib.figure.Figure
-        Parent figure.
-    ax : matplotlib.axes.Axes or cartopy.mpl.geoaxes.GeoAxes
-        Destination axis.
-    method : {"default", "pcolormesh", "contourf", "contour", "imshow", "scatter"}
-        Plotting method.
-    x, y : str
-        Horizontal coordinate names.
-    cmap, norm, vmin, vmax : optional
-        Scalar-color mapping parameters.
-    levels : int or sequence of float, optional
-        Contour levels.
-    extend : {"neither", "both", "min", "max"}, optional
-        Out-of-range contour behavior.
-    robust : bool, default False
-        Use percentile-based limits where supported.
-    rasterized : bool, default False
-        Rasterize dense primitives where supported.
-    zorder : float, default 1
-        Drawing order.
-    add_labels : bool, default False
-        Let xarray add labels.
-    hillshade : Hillshade, optional
-        Grayscale relief drawn beneath the field. The field uses
-        ``hillshade.field_alpha`` unless ``alpha`` is supplied.
-    **kwargs
-        Additional method-specific keyword arguments.
-
-    Returns
-    -------
-    matplotlib primitive
-        Primitive returned by the selected ``plot_*`` function.
-    """
-    if hillshade is not None:
-        dx, dy = hillshade_spacing(data, x=x, y=y, spacing=hillshade.spacing)
-        shaded = compute_hillshade(
-            data.transpose(y, x),
-            z_factor=hillshade.vert_exag,
-            azimuth=hillshade.azimuth,
-            altitude=hillshade.altitude,
-            dx=dx,
-            dy=dy,
-        )
-        plot_pcolormesh(
-            shaded,
-            fig,
-            ax,
-            x=x,
-            y=y,
-            cmap=hillshade.cmap,
-            vmin=0,
-            vmax=1,
-            alpha=hillshade.alpha,
-            rasterized=rasterized,
-            zorder=zorder - 0.1,
-            **{
-                key: kwargs[key]
-                for key in ("transform", "infer_intervals")
-                if key in kwargs
-            },
-        )
-        if hillshade.field_alpha is not None:
-            kwargs.setdefault("alpha", hillshade.field_alpha)
-
-    if method == "default":
-        return plot_default(
-            data,
-            fig,
-            ax,
-            x=x,
-            y=y,
-            cmap=cmap,
-            norm=norm,
-            vmin=vmin,
-            vmax=vmax,
-            robust=robust,
-            rasterized=rasterized,
-            zorder=zorder,
-            add_labels=add_labels,
-            **kwargs,
-        )
-    if method == "pcolormesh":
-        return plot_pcolormesh(
-            data,
-            fig,
-            ax,
-            x=x,
-            y=y,
-            cmap=cmap,
-            norm=norm,
-            vmin=vmin,
-            vmax=vmax,
-            robust=robust,
-            rasterized=rasterized,
-            zorder=zorder,
-            add_labels=add_labels,
-            **kwargs,
-        )
-    if method == "contourf":
-        return plot_contourf(
-            data,
-            fig,
-            ax,
-            x=x,
-            y=y,
-            levels=levels,
-            cmap=cmap,
-            norm=norm,
-            vmin=vmin,
-            vmax=vmax,
-            extend=extend,
-            robust=robust,
-            rasterized=rasterized,
-            zorder=zorder,
-            add_labels=add_labels,
-            **kwargs,
-        )
-    if method == "contour":
-        return plot_contour(
-            data,
-            fig,
-            ax,
-            x=x,
-            y=y,
-            levels=levels,
-            cmap=cmap,
-            norm=norm,
-            vmin=vmin,
-            vmax=vmax,
-            extend=extend,
-            rasterized=rasterized,
-            zorder=zorder,
-            add_labels=add_labels,
-            **kwargs,
-        )
-    if method == "imshow":
-        return plot_imshow(
-            data,
-            fig,
-            ax,
-            x=x,
-            y=y,
-            cmap=cmap,
-            norm=norm,
-            vmin=vmin,
-            vmax=vmax,
-            robust=robust,
-            rasterized=rasterized,
-            zorder=zorder,
-            add_labels=add_labels,
-            **kwargs,
-        )
-    if method == "scatter":
-        return plot_scatter(
-            data,
-            fig,
-            ax,
-            x=x,
-            y=y,
-            cmap=cmap,
-            norm=norm,
-            vmin=vmin,
-            vmax=vmax,
-            zorder=zorder,
-            add_labels=add_labels,
-            **kwargs,
-        )
-    raise ValueError(f"unsupported plot method {method!r}")
 
 
 class FacetedPlot:
@@ -741,15 +500,8 @@ class FacetedPlot:
                 add_map_features(
                     self.figure,
                     axis,
-                    global_extent=features.global_extent,
                     set_extent=features.extent,
-                    coastlines=features.coastlines,
-                    states=features.states,
-                    borders=features.borders,
-                    lakes=features.lakes,
-                    rivers=features.rivers,
-                    ocean=features.ocean,
-                    land=features.land,
+                    **features.arguments(exclude=("extent", "grid_bounds")),
                 )
             )
             if map_ticks is not None:
@@ -886,11 +638,11 @@ class FacetedPlot:
         self.contour_labels.clear()
         for axis, selector in self.axis_selectors:
             field = select_facet(self.data, selector)
-            artist = _plot_scalar(
+            artist = plot_field(
+                method,
                 field,
                 self.figure,
                 axis,
-                method=method,
                 x=self.x,
                 y=self.y,
                 cmap=cmap,
@@ -928,7 +680,7 @@ class GeoPlot:
 
     ``GeoPlot`` owns normalized input data, figure construction, scalar
     rendering, optional overlays, and all returned Matplotlib primitives.
-    Single-axis and faceted plots use the same stateless ``plot_*`` functions.
+    Single-axis and faceted plots use the same stateless drawing functions.
 
     Parameters
     ----------
@@ -977,26 +729,26 @@ class GeoPlot:
         Explicit base colorbar label.
     colorbar_orientation : {"vertical", "horizontal"}, optional
         Base colorbar orientation. Vertical when omitted.
-    colorbar_style : ColorbarStyle or dict, optional
+    colorbar_style : ColorbarStyle, optional
         Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
         ``ticks`` and ``tick_labels``.
-    features : MapFeatures or dict, optional
+    features : MapFeatures, optional
         Map features and extent: ``coastlines``, ``borders``, ``states``,
         ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
         ``extent`` and ``grid_bounds``.
-    map_ticks : bool, MapTicks or dict, default False
+    map_ticks : bool or MapTicks, default False
         Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
         and ``ybins``.
-    significance : Significance or dict, optional
+    significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers.
         Marker styling fields are documented on :class:`Significance`.
-    vectors : VectorField or dict, optional
+    vectors : VectorField, optional
         Vector components ``u`` and ``v`` drawn as a quiver layer.
         Arrow styling fields are documented on :class:`VectorField`.
-    clabel : bool, ContourLabels or dict, default False
+    clabel : bool or ContourLabels, default False
         Label line contours. Line contours are always labelled.
         Label fields are documented on :class:`ContourLabels`.
-    hillshade : bool, Hillshade or dict, default False
+    hillshade : bool or Hillshade, default False
         Draw grayscale relief beneath the field in the plot. ``True`` uses the
         :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
         exaggeration 1 and physical cell spacing for degree and metre grids.
@@ -1005,8 +757,8 @@ class GeoPlot:
     cyclic : bool, default False
         Append a cyclic horizontal point before plotting.
     **kwargs
-        Additional arguments forwarded to the selected base ``plot_*``
-        function.
+        Additional arguments forwarded to :func:`primitives.plot_field`
+        and from there to the selected xarray plotting method.
 
     Attributes
     ----------
@@ -1071,13 +823,13 @@ class GeoPlot:
         colorbar: bool = True,
         colorbar_label: str | None = None,
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
-        colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
-        features: MapFeatures | dict[str, Any] | None = None,
-        map_ticks: bool | MapTicks | dict[str, Any] = False,
-        significance: Significance | dict[str, Any] | None = None,
-        vectors: VectorField | dict[str, Any] | None = None,
-        clabel: bool | ContourLabels | dict[str, Any] = False,
-        hillshade: bool | Hillshade | dict[str, Any] = False,
+        colorbar_style: ColorbarStyle | None = None,
+        features: MapFeatures | None = None,
+        map_ticks: bool | MapTicks = False,
+        significance: Significance | None = None,
+        vectors: VectorField | None = None,
+        clabel: bool | ContourLabels = False,
+        hillshade: bool | Hillshade = False,
         cyclic: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -1144,8 +896,7 @@ class GeoPlot:
         self.norm = cmap_params.norm
         self.extend = cmap_params.extend
 
-        # Makes everything better
-
+        # An explicit norm owns the color limits.
         if self.norm is not None:
             self.vmin = self.norm.vmin
             self.vmax = self.norm.vmax
@@ -1186,12 +937,12 @@ class GeoPlot:
             self.contour_labels = facet.contour_labels
             self.map_features = facet.map_features
 
-            if isinstance(self.title, dict):
-                title_options = dict(self.title)
-                label = title_options.pop("label", "")
-                self.figure.suptitle(label, **title_options)
-            else:
-                self.figure.suptitle(self.title)
+            title = (
+                {"label": self.title}
+                if isinstance(self.title, str)
+                else dict(self.title)
+            )
+            self.figure.suptitle(title.pop("label", ""), **title)
         else:
             self.figure, axes_array = create_figure(
                 projection=self.projection_object,
@@ -1205,15 +956,8 @@ class GeoPlot:
             self.map_features = add_map_features(
                 self.figure,
                 axis,
-                global_extent=map_options.global_extent,
                 set_extent=map_options.extent,
-                coastlines=map_options.coastlines,
-                states=map_options.states,
-                borders=map_options.borders,
-                lakes=map_options.lakes,
-                rivers=map_options.rivers,
-                ocean=map_options.ocean,
-                land=map_options.land,
+                **map_options.arguments(exclude=("extent", "grid_bounds")),
             )
             if options.map_ticks is not None:
                 add_xy_ticks(
@@ -1223,11 +967,11 @@ class GeoPlot:
                     xticks_bins=options.map_ticks.xbins,
                     yticks_bins=options.map_ticks.ybins,
                 )
-            self.artist = _plot_scalar(
+            self.artist = plot_field(
+                method,
                 self.data,
                 self.figure,
                 axis,
-                method=method,
                 x=self.x,
                 y=self.y,
                 cmap=self.cmap,
@@ -1264,12 +1008,12 @@ class GeoPlot:
                     **options.contour_labels.arguments(),
                 )
 
-            if isinstance(self.title, dict):
-                title_options = dict(self.title)
-                label = title_options.pop("label", "")
-                axis.set_title(label, **title_options)
-            else:
-                axis.set_title(self.title)
+            title = (
+                {"label": self.title}
+                if isinstance(self.title, str)
+                else dict(self.title)
+            )
+            axis.set_title(title.pop("label", ""), **title)
 
         self.layers.append(
             {
@@ -1300,11 +1044,8 @@ class GeoPlot:
                 inferred_units = units or self.data.attrs.get("units", self.data.name)
                 label = f"{long_name}\n[{inferred_units}]".strip()
             resolved_orientation = colorbar_orientation or "vertical"
-            # (
-            #     "horizontal" if self.is_faceted else "vertical"
-            # )
 
-            self.colorbar = _add_colorbar(
+            self.colorbar = primitives.colorbar(
                 self.mappable,
                 ax=self.axes,
                 fig=self.figure,
@@ -1460,9 +1201,11 @@ class GeoPlot:
 class Adder:
     """Add reusable plotting primitives to an existing :class:`GeoPlot`.
 
-    Every method delegates drawing to the corresponding function in
-    :mod:`plot_utils`, stores the returned primitives on the parent object, and
-    returns the parent to support method chaining.
+    Every method delegates drawing to :mod:`primitives`, stores the returned
+    primitives on the parent object, and returns the parent to support method chaining. The scalar layers
+    (:meth:`plot`, :meth:`pcolormesh`, :meth:`contourf`, :meth:`contour`,
+    :meth:`imshow` and :meth:`scatter`) share one code path through
+    :func:`primitives.plot_field`, the same function that draws the base layer.
 
     Parameters
     ----------
@@ -1490,6 +1233,79 @@ class Adder:
         normalized = wrap_lon(data, lon=self._plot.x)
         assert normalized is not None
         return normalized
+
+    def _layer(self, kind: str, arguments: Mapping[str, Any]) -> GeoPlot:
+        """Draw one scalar overlay on every populated axis and register it.
+
+        Parameters
+        ----------
+        kind : {"default", "pcolormesh", "contourf", "contour", "imshow", "scatter"}
+            Scalar plotting method, also used as the registered layer kind.
+        arguments : mapping
+            ``locals()`` of the calling public method: ``self``, ``data``,
+            ``kwargs``, the named layer arguments and, where the method has
+            them, ``x``, ``y`` and ``clabel``. Named arguments that are
+            ``None`` are treated as unset.
+
+        Returns
+        -------
+        GeoPlot
+            Parent plot.
+        """
+        params = dict(arguments)
+        params.pop("self")
+        data = params.pop("data")
+        kwargs = params.pop("kwargs")
+        x = params.pop("x", None) or self._plot.x
+        y = params.pop("y", None) or self._plot.y
+        params = {name: value for name, value in params.items() if value is not None}
+        label_options = ContourLabels.coerce(params.pop("clabel", False))
+        params.update(kwargs)
+
+        points = isinstance(data, tuple)
+        if points:
+            if len(data) != 2:
+                raise TypeError(
+                    "data must be an xarray.DataArray or an (x, y) tuple of numpy arrays"
+                )
+            if not all(isinstance(values, np.ndarray) for values in data):
+                raise TypeError("tuple data must contain two numpy.ndarray objects")
+            if data[0].shape != data[1].shape:
+                raise ValueError("scatter x and y arrays must have matching shapes")
+            for name in ("hue", "markersize", "add_labels"):
+                params.pop(name, None)
+        elif isinstance(data, xr.DataArray):
+            data = self._normalized(data)
+            params.update(x=x, y=y)
+        else:
+            raise TypeError(
+                "data must be an xarray.DataArray or an (x, y) tuple of numpy arrays"
+            )
+
+        artists: list[ScalarPrimitive] = []
+        labels: list[list[Text]] = []
+        for axis, selector in self._plot.iter_axes():
+            artist = plot_field(
+                kind,
+                data if points else self._plot.select(data, selector),
+                self._plot.figure,
+                axis,
+                **params,
+            )
+            artists.append(artist)
+            if label_options is not None:
+                labels.append(
+                    add_contour_labels(
+                        self._plot.figure,
+                        axis,
+                        artist,
+                        **label_options.arguments(),
+                    )
+                )
+        self._plot.register_layer(
+            kind, artists, labels=labels if kind == "contour" else None
+        )
+        return self._plot
 
     def plot(
         self,
@@ -1526,36 +1342,14 @@ class Adder:
         add_labels : bool, default False
             Let xarray add labels.
         **kwargs
-            Additional arguments forwarded to :func:`plot_default`.
+            Additional arguments forwarded to :meth:`xarray.DataArray.plot`.
 
         Returns
         -------
         GeoPlot
             Parent plot.
         """
-        data = self._normalized(data)
-        artists: list[ScalarPrimitive] = []
-        for axis, selector in self._plot.iter_axes():
-            artists.append(
-                plot_default(
-                    self._plot.select(data, selector),
-                    self._plot.figure,
-                    axis,
-                    x=x or self._plot.x,
-                    y=y or self._plot.y,
-                    cmap=cmap,
-                    norm=norm,
-                    vmin=vmin,
-                    vmax=vmax,
-                    robust=robust,
-                    rasterized=rasterized,
-                    zorder=zorder,
-                    add_labels=add_labels,
-                    **kwargs,
-                )
-            )
-        self._plot.register_layer("default", artists)
-        return self._plot
+        return self._layer("default", locals())
 
     def pcolormesh(
         self,
@@ -1592,36 +1386,14 @@ class Adder:
         add_labels : bool, default False
             Let xarray add labels.
         **kwargs
-            Additional arguments forwarded to :func:`plot_pcolormesh`.
+            Additional arguments forwarded to :meth:`xarray.DataArray.plot.pcolormesh`.
 
         Returns
         -------
         GeoPlot
             Parent plot.
         """
-        data = self._normalized(data)
-        artists: list[QuadMesh] = []
-        for axis, selector in self._plot.iter_axes():
-            artists.append(
-                plot_pcolormesh(
-                    self._plot.select(data, selector),
-                    self._plot.figure,
-                    axis,
-                    x=x or self._plot.x,
-                    y=y or self._plot.y,
-                    cmap=cmap,
-                    norm=norm,
-                    vmin=vmin,
-                    vmax=vmax,
-                    robust=robust,
-                    rasterized=rasterized,
-                    zorder=zorder,
-                    add_labels=add_labels,
-                    **kwargs,
-                )
-            )
-        self._plot.register_layer("pcolormesh", artists)
-        return self._plot
+        return self._layer("pcolormesh", locals())
 
     def contourf(
         self,
@@ -1674,40 +1446,14 @@ class Adder:
         add_labels : bool, default False
             Let xarray add labels.
         **kwargs
-            Additional arguments forwarded to :func:`plot_contourf`.
+            Additional arguments forwarded to :meth:`xarray.DataArray.plot.contourf`.
 
         Returns
         -------
         GeoPlot
             Parent plot.
         """
-        data = self._normalized(data)
-        artists: list[QuadContourSet] = []
-        for axis, selector in self._plot.iter_axes():
-            artists.append(
-                plot_contourf(
-                    self._plot.select(data, selector),
-                    self._plot.figure,
-                    axis,
-                    x=x or self._plot.x,
-                    y=y or self._plot.y,
-                    levels=levels,
-                    cmap=cmap,
-                    colors=colors,
-                    norm=norm,
-                    vmin=vmin,
-                    vmax=vmax,
-                    extend=extend,
-                    robust=robust,
-                    alpha=alpha,
-                    rasterized=rasterized,
-                    zorder=zorder,
-                    add_labels=add_labels,
-                    **kwargs,
-                )
-            )
-        self._plot.register_layer("contourf", artists)
-        return self._plot
+        return self._layer("contourf", locals())
 
     def contour(
         self,
@@ -1728,7 +1474,7 @@ class Adder:
         rasterized: bool = False,
         zorder: float = 3.0,
         add_labels: bool = False,
-        clabel: bool | ContourLabels | dict[str, Any] = False,
+        clabel: bool | ContourLabels = False,
         **kwargs: Any,
     ) -> GeoPlot:
         """Add a line-contour layer.
@@ -1757,55 +1503,18 @@ class Adder:
             Drawing order.
         add_labels : bool, default False
             Let xarray add labels.
-        clabel : bool, ContourLabels or dict, default False
+        clabel : bool or ContourLabels, default False
             Label each contour set. Label fields are documented on
             :class:`ContourLabels`.
         **kwargs
-            Additional arguments forwarded to :func:`plot_contour`.
+            Additional arguments forwarded to :meth:`xarray.DataArray.plot.contour`.
 
         Returns
         -------
         GeoPlot
             Parent plot.
         """
-        data = self._normalized(data)
-        label_options = ContourLabels.coerce(clabel)
-        artists: list[QuadContourSet] = []
-        labels: list[list[Text]] = []
-        for axis, selector in self._plot.iter_axes():
-            artist = plot_contour(
-                self._plot.select(data, selector),
-                self._plot.figure,
-                axis,
-                x=x or self._plot.x,
-                y=y or self._plot.y,
-                levels=levels,
-                cmap=cmap,
-                colors=colors,
-                linewidths=linewidths,
-                linestyles=linestyles,
-                norm=norm,
-                vmin=vmin,
-                vmax=vmax,
-                extend=extend,
-                alpha=alpha,
-                rasterized=rasterized,
-                zorder=zorder,
-                add_labels=add_labels,
-                **kwargs,
-            )
-            artists.append(artist)
-            if label_options is not None:
-                labels.append(
-                    add_contour_labels(
-                        self._plot.figure,
-                        axis,
-                        artist,
-                        **label_options.arguments(),
-                    )
-                )
-        self._plot.register_layer("contour", artists, labels=labels)
-        return self._plot
+        return self._layer("contour", locals())
 
     def imshow(
         self,
@@ -1848,38 +1557,14 @@ class Adder:
         add_labels : bool, default False
             Let xarray add labels.
         **kwargs
-            Additional arguments forwarded to :func:`plot_imshow`.
+            Additional arguments forwarded to :meth:`xarray.DataArray.plot.imshow`.
 
         Returns
         -------
         GeoPlot
             Parent plot.
         """
-        data = self._normalized(data)
-        artists: list[AxesImage] = []
-        for axis, selector in self._plot.iter_axes():
-            artists.append(
-                plot_imshow(
-                    self._plot.select(data, selector),
-                    self._plot.figure,
-                    axis,
-                    x=x or self._plot.x,
-                    y=y or self._plot.y,
-                    cmap=cmap,
-                    norm=norm,
-                    vmin=vmin,
-                    vmax=vmax,
-                    robust=robust,
-                    interpolation=interpolation,
-                    origin=origin,
-                    rasterized=rasterized,
-                    zorder=zorder,
-                    add_labels=add_labels,
-                    **kwargs,
-                )
-            )
-        self._plot.register_layer("imshow", artists)
-        return self._plot
+        return self._layer("imshow", locals())
 
     def scatter(
         self,
@@ -1950,82 +1635,15 @@ class Adder:
         add_labels : bool, default False
             Let xarray add labels for DataArray input. Ignored for tuple input.
         **kwargs
-            Additional keyword arguments forwarded to :func:`plot_scatter` and
-            ultimately to xarray scatter plotting or :meth:`Axes.scatter`.
+            Additional keyword arguments forwarded to xarray scatter plotting
+            for DataArray input or to :meth:`Axes.scatter` for tuple input.
 
         Returns
         -------
         GeoPlot
             Parent plot.
         """
-        artists: list[PathCollection] = []
-
-        if isinstance(data, xr.DataArray):
-            data = self._normalized(data)
-            for axis, selector in self._plot.iter_axes():
-                artists.append(
-                    plot_scatter(
-                        self._plot.select(data, selector),
-                        self._plot.figure,
-                        axis,
-                        x=self._plot.x,
-                        y=self._plot.y,
-                        hue=hue,
-                        markersize=markersize,
-                        s=s,
-                        c=c,
-                        marker=marker,
-                        cmap=cmap,
-                        norm=norm,
-                        vmin=vmin,
-                        vmax=vmax,
-                        alpha=alpha,
-                        linewidths=linewidths,
-                        edgecolors=edgecolors,
-                        colorizer=colorizer,
-                        plotnonfinite=plotnonfinite,
-                        size=size,
-                        zorder=zorder,
-                        add_labels=add_labels,
-                        **kwargs,
-                    )
-                )
-        elif isinstance(data, tuple) and len(data) == 2:
-            x, y = data
-            if not isinstance(x, np.ndarray) or not isinstance(y, np.ndarray):
-                raise TypeError("tuple data must contain two numpy.ndarray objects")
-            if x.shape != y.shape:
-                raise ValueError("scatter x and y arrays must have matching shapes")
-            for axis, _ in self._plot.iter_axes():
-                artists.append(
-                    plot_scatter(
-                        (x, y),
-                        self._plot.figure,
-                        axis,
-                        s=s,
-                        c=c,
-                        marker=marker,
-                        cmap=cmap,
-                        norm=norm,
-                        vmin=vmin,
-                        vmax=vmax,
-                        alpha=alpha,
-                        linewidths=linewidths,
-                        edgecolors=edgecolors,
-                        colorizer=colorizer,
-                        plotnonfinite=plotnonfinite,
-                        size=size,
-                        zorder=zorder,
-                        **kwargs,
-                    )
-                )
-        else:
-            raise TypeError(
-                "data must be an xarray.DataArray or an (x, y) tuple of numpy arrays"
-            )
-
-        self._plot.register_layer("scatter", artists)
-        return self._plot
+        return self._layer("scatter", locals())
 
     def quiver(
         self,
@@ -2233,7 +1851,7 @@ class Adder:
         GeoPlot
             Parent plot.
         """
-        colorbar = _add_colorbar(
+        colorbar = primitives.colorbar(
             mappable or self._plot.mappable,
             ax=self._plot.axes,
             fig=self._plot.figure,
@@ -2257,8 +1875,8 @@ class Adder:
         linewidth: float = 1.5,
         color: str = "black",
         zorder: float = 1,
-    ) -> None:
-        """Draw the exterior boundary of a two-dimensional longitude-latitude grid.
+    ) -> GeoPlot:
+        """Draw the exterior boundary of the plotted longitude-latitude grid.
 
         Parameters
         ----------
@@ -2266,29 +1884,28 @@ class Adder:
             Width of the boundary line, in points.
         color : str, default "black"
             Matplotlib-compatible color specification for the boundary line.
-        zorder : float, default 20
+        zorder : float, default 1
             Drawing order of the boundary. Artists with higher values are drawn
             above artists with lower values.
 
         Returns
         -------
-        None
+        GeoPlot
+            Parent plot.
         """
-        artists: list[PathCollection] = []
-        for axis, selector in self._plot.iter_axes():
-            artists.append(
-                add_grid_boundary(
-                    axis,
-                    lon=self._plot.grid[self._plot.x].values,
-                    lat=self._plot.grid[self._plot.y].values,
-                    transform=ccrs.PlateCarree(),
-                    linewidth=linewidth,
-                    color=color,
-                    zorder=zorder,
-                )
+        artists: list[Line2D] = [
+            add_grid_boundary(
+                axis,
+                lon=self._plot.grid[self._plot.x].values,
+                lat=self._plot.grid[self._plot.y].values,
+                transform=ccrs.PlateCarree(),
+                linewidth=linewidth,
+                color=color,
+                zorder=zorder,
             )
-
-            self._plot.register_layer("grid_boundary", artists)
+            for axis, _ in self._plot.iter_axes()
+        ]
+        self._plot.register_layer("grid_boundary", artists)
         return self._plot
 
 
@@ -2367,23 +1984,23 @@ class Animate:
         Explicit base colorbar label.
     colorbar_orientation : {"vertical", "horizontal"}, optional
         Base colorbar orientation. Vertical when omitted.
-    colorbar_style : ColorbarStyle or dict, optional
+    colorbar_style : ColorbarStyle, optional
         Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
         ``ticks`` and ``tick_labels``.
-    features : MapFeatures or dict, optional
+    features : MapFeatures, optional
         Map features and extent: ``coastlines``, ``borders``, ``states``,
         ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
         ``extent`` and ``grid_bounds``.
-    map_ticks : bool, MapTicks or dict, default False
+    map_ticks : bool or MapTicks, default False
         Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
         and ``ybins``.
-    vectors : VectorField or dict, optional
+    vectors : VectorField, optional
         Vector components ``u`` and ``v`` drawn as a quiver layer. Both must contain the animation dimension and are selected per frame.
         Arrow styling fields are documented on :class:`VectorField`.
-    clabel : bool, ContourLabels or dict, default False
+    clabel : bool or ContourLabels, default False
         Label line contours. Line contours are always labelled.
         Label fields are documented on :class:`ContourLabels`.
-    hillshade : bool, Hillshade or dict, default False
+    hillshade : bool or Hillshade, default False
         Draw grayscale relief beneath the field in each frame. ``True`` uses the
         :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
         exaggeration 1 and physical cell spacing for degree and metre grids.
@@ -2461,12 +2078,12 @@ class Animate:
         colorbar: bool = True,
         colorbar_label: str | None = None,
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
-        colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
-        features: MapFeatures | dict[str, Any] | None = None,
-        map_ticks: bool | MapTicks | dict[str, Any] = False,
-        vectors: VectorField | dict[str, Any] | None = None,
-        clabel: bool | ContourLabels | dict[str, Any] = False,
-        hillshade: bool | Hillshade | dict[str, Any] = False,
+        colorbar_style: ColorbarStyle | None = None,
+        features: MapFeatures | None = None,
+        map_ticks: bool | MapTicks = False,
+        vectors: VectorField | None = None,
+        clabel: bool | ContourLabels = False,
+        hillshade: bool | Hillshade = False,
         cyclic: bool = False,
         indices: Sequence[int] | np.ndarray | None = None,
         outfile: str | Path | None = None,
@@ -2727,13 +2344,13 @@ def geoplot(
     colorbar: bool = True,
     colorbar_label: str | None = None,
     colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
-    colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
-    features: MapFeatures | dict[str, Any] | None = None,
-    map_ticks: bool | MapTicks | dict[str, Any] = False,
-    significance: Significance | dict[str, Any] | None = None,
-    vectors: VectorField | dict[str, Any] | None = None,
-    clabel: bool | ContourLabels | dict[str, Any] = False,
-    hillshade: bool | Hillshade | dict[str, Any] = False,
+    colorbar_style: ColorbarStyle | None = None,
+    features: MapFeatures | None = None,
+    map_ticks: bool | MapTicks = False,
+    significance: Significance | None = None,
+    vectors: VectorField | None = None,
+    clabel: bool | ContourLabels = False,
+    hillshade: bool | Hillshade = False,
     cyclic: bool = False,
     **kwargs: Any,
 ) -> GeoPlot:
@@ -2775,26 +2392,26 @@ def geoplot(
         Explicit base colorbar label.
     colorbar_orientation : {"vertical", "horizontal"}, optional
         Base colorbar orientation. Vertical when omitted.
-    colorbar_style : ColorbarStyle or dict, optional
+    colorbar_style : ColorbarStyle, optional
         Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
         ``ticks`` and ``tick_labels``.
-    features : MapFeatures or dict, optional
+    features : MapFeatures, optional
         Map features and extent: ``coastlines``, ``borders``, ``states``,
         ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
         ``extent`` and ``grid_bounds``.
-    map_ticks : bool, MapTicks or dict, default False
+    map_ticks : bool or MapTicks, default False
         Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
         and ``ybins``.
-    significance : Significance or dict, optional
+    significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers.
         Marker styling fields are documented on :class:`Significance`.
-    vectors : VectorField or dict, optional
+    vectors : VectorField, optional
         Vector components ``u`` and ``v`` drawn as a quiver layer.
         Arrow styling fields are documented on :class:`VectorField`.
-    clabel : bool, ContourLabels or dict, default False
+    clabel : bool or ContourLabels, default False
         Label line contours. Line contours are always labelled.
         Label fields are documented on :class:`ContourLabels`.
-    hillshade : bool, Hillshade or dict, default False
+    hillshade : bool or Hillshade, default False
         Draw grayscale relief beneath the field in the plot. ``True`` uses the
         :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
         exaggeration 1 and physical cell spacing for degree and metre grids.
@@ -2857,12 +2474,12 @@ def animate(
     colorbar: bool = True,
     colorbar_label: str | None = None,
     colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
-    colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
-    features: MapFeatures | dict[str, Any] | None = None,
-    map_ticks: bool | MapTicks | dict[str, Any] = False,
-    vectors: VectorField | dict[str, Any] | None = None,
-    clabel: bool | ContourLabels | dict[str, Any] = False,
-    hillshade: bool | Hillshade | dict[str, Any] = False,
+    colorbar_style: ColorbarStyle | None = None,
+    features: MapFeatures | None = None,
+    map_ticks: bool | MapTicks = False,
+    vectors: VectorField | None = None,
+    clabel: bool | ContourLabels = False,
+    hillshade: bool | Hillshade = False,
     cyclic: bool = False,
     indices: Sequence[int] | np.ndarray | None = None,
     outfile: str | Path | None = None,
@@ -2905,23 +2522,23 @@ def animate(
         Explicit base colorbar label.
     colorbar_orientation : {"vertical", "horizontal"}, optional
         Base colorbar orientation. Vertical when omitted.
-    colorbar_style : ColorbarStyle or dict, optional
+    colorbar_style : ColorbarStyle, optional
         Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
         ``ticks`` and ``tick_labels``.
-    features : MapFeatures or dict, optional
+    features : MapFeatures, optional
         Map features and extent: ``coastlines``, ``borders``, ``states``,
         ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
         ``extent`` and ``grid_bounds``.
-    map_ticks : bool, MapTicks or dict, default False
+    map_ticks : bool or MapTicks, default False
         Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
         and ``ybins``.
-    vectors : VectorField or dict, optional
+    vectors : VectorField, optional
         Vector components ``u`` and ``v`` drawn as a quiver layer. Both must contain the animation dimension and are selected per frame.
         Arrow styling fields are documented on :class:`VectorField`.
-    clabel : bool, ContourLabels or dict, default False
+    clabel : bool or ContourLabels, default False
         Label line contours. Line contours are always labelled.
         Label fields are documented on :class:`ContourLabels`.
-    hillshade : bool, Hillshade or dict, default False
+    hillshade : bool or Hillshade, default False
         Draw grayscale relief beneath the field in each frame. ``True`` uses the
         :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
         exaggeration 1 and physical cell spacing for degree and metre grids.

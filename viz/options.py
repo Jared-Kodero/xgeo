@@ -10,8 +10,10 @@ IDE can complete the fields::
     da.xgeo.geoplot(features=MapFeatures(states=False, lakes=True))
     da.xgeo.geoplot(vectors=VectorField(u=u, v=v, color="k", subsample=(4, 4)))
 
-Every grouped parameter also accepts a plain ``dict`` with the same keys. All
-fields are named and typed; no class accepts open-ended keyword arguments.
+Grouped parameters accept only an option instance, ``None`` and, where a
+default group exists, a bool. Plain dictionaries are not accepted. All fields
+are keyword-only, named and typed; no class accepts open-ended keyword
+arguments.
 """
 
 from __future__ import annotations
@@ -45,11 +47,12 @@ class _Option:
     __slots__ = ()
 
     @classmethod
-    def coerce(cls, value: bool | Self | Mapping[str, Any] | None) -> Self | None:
+    def coerce(cls, value: bool | Self | None) -> Self | None:
         """Convert a user value to an option instance.
 
-        ``None`` and ``False`` disable the group, ``True`` selects the defaults,
-        an instance is returned unchanged and a mapping is expanded into fields.
+        ``None`` and ``False`` disable the group, ``True`` selects the defaults
+        and an instance is returned unchanged. Any other value, including a
+        mapping, raises ``TypeError``.
         """
         if value is None or value is False:
             return None
@@ -62,10 +65,8 @@ class _Option:
                 ) from error
         if isinstance(value, cls):
             return value
-        if isinstance(value, Mapping):
-            return cls(**value)
         raise TypeError(
-            f"expected a bool, {cls.__name__}, mapping or None, got {type(value).__name__}"
+            f"expected a bool, {cls.__name__} or None, got {type(value).__name__}"
         )
 
     def arguments(self, *, exclude: Sequence[str] = ()) -> dict[str, Any]:
@@ -120,6 +121,7 @@ class Hillshade(_Option):
     field_alpha: float | None = 0.4
     cmap: str | Colormap = "gray"
     spacing: Literal["auto", "pixel"] | tuple[float, float] = "auto"
+    hillshade_only: bool = False
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.vert_exag):
@@ -405,13 +407,13 @@ def resolve_options(
     method: Literal[
         "default", "pcolormesh", "contourf", "contour", "imshow", "scatter"
     ],
-    colorbar_style: ColorbarStyle | dict[str, Any] | None,
-    features: MapFeatures | dict[str, Any] | None,
-    hillshade: bool | Hillshade | dict[str, Any],
-    clabel: bool | ContourLabels | dict[str, Any],
-    map_ticks: bool | MapTicks | dict[str, Any],
-    significance: Significance | dict[str, Any] | None,
-    vectors: VectorField | dict[str, Any] | None,
+    colorbar_style: ColorbarStyle | None,
+    features: MapFeatures | None,
+    hillshade: bool | Hillshade,
+    clabel: bool | ContourLabels,
+    map_ticks: bool | MapTicks,
+    significance: Significance | None,
+    vectors: VectorField | None,
 ) -> ResolvedOptions:
     """Coerce every grouped option of a plot call.
 

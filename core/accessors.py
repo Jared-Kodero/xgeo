@@ -379,13 +379,13 @@ class GeoDataArray(GeoBase):
         colorbar: bool = True,
         colorbar_label: str | None = None,
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
-        colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
-        features: MapFeatures | dict[str, Any] | None = None,
-        map_ticks: bool | MapTicks | dict[str, Any] = False,
-        significance: Significance | dict[str, Any] | None = None,
-        vectors: VectorField | dict[str, Any] | None = None,
-        clabel: bool | ContourLabels | dict[str, Any] = False,
-        hillshade: bool | Hillshade | dict[str, Any] = False,
+        colorbar_style: ColorbarStyle | None = None,
+        features: MapFeatures | None = None,
+        map_ticks: bool | MapTicks = False,
+        significance: Significance | None = None,
+        vectors: VectorField | None = None,
+        clabel: bool | ContourLabels = False,
+        hillshade: bool | Hillshade = False,
         cyclic: bool = False,
         **kwargs: Any,
     ) -> GeoPlot:
@@ -433,26 +433,26 @@ class GeoDataArray(GeoBase):
             Explicit base colorbar label.
         colorbar_orientation : {"vertical", "horizontal"}, optional
             Base colorbar orientation. Vertical when omitted.
-        colorbar_style : ColorbarStyle or dict, optional
+        colorbar_style : ColorbarStyle, optional
             Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
             ``ticks`` and ``tick_labels``.
-        features : MapFeatures or dict, optional
+        features : MapFeatures, optional
             Map features and extent: ``coastlines``, ``borders``, ``states``,
             ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
             ``extent`` and ``grid_bounds``.
-        map_ticks : bool, MapTicks or dict, default False
+        map_ticks : bool or MapTicks, default False
             Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
             and ``ybins``.
-        significance : Significance or dict, optional
+        significance : Significance, optional
             Pointwise p-values (``pvalues``) drawn as significance markers.
             Marker styling fields are documented on :class:`Significance`.
-        vectors : VectorField or dict, optional
+        vectors : VectorField, optional
             Vector components ``u`` and ``v`` drawn as a quiver layer.
             Arrow styling fields are documented on :class:`VectorField`.
-        clabel : bool, ContourLabels or dict, default False
+        clabel : bool or ContourLabels, default False
             Label line contours. Line contours are always labelled.
             Label fields are documented on :class:`ContourLabels`.
-        hillshade : bool, Hillshade or dict, default False
+        hillshade : bool or Hillshade, default False
             Draw grayscale relief beneath the field in the plot. ``True`` uses the
             :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
             exaggeration 1 and physical cell spacing for degree and metre grids.
@@ -516,12 +516,12 @@ class GeoDataArray(GeoBase):
         colorbar: bool = True,
         colorbar_label: str | None = None,
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
-        colorbar_style: ColorbarStyle | dict[str, Any] | None = None,
-        features: MapFeatures | dict[str, Any] | None = None,
-        map_ticks: bool | MapTicks | dict[str, Any] = False,
-        vectors: VectorField | dict[str, Any] | None = None,
-        clabel: bool | ContourLabels | dict[str, Any] = False,
-        hillshade: bool | Hillshade | dict[str, Any] = False,
+        colorbar_style: ColorbarStyle | None = None,
+        features: MapFeatures | None = None,
+        map_ticks: bool | MapTicks = False,
+        vectors: VectorField | None = None,
+        clabel: bool | ContourLabels = False,
+        hillshade: bool | Hillshade = False,
         cyclic: bool = False,
         indices: tuple[int, ...] | list[int] | np.ndarray[Any, Any] | None = None,
         outfile: Path | str | None = None,
@@ -576,23 +576,23 @@ class GeoDataArray(GeoBase):
             Explicit base colorbar label.
         colorbar_orientation : {"vertical", "horizontal"}, optional
             Base colorbar orientation. Vertical when omitted.
-        colorbar_style : ColorbarStyle or dict, optional
+        colorbar_style : ColorbarStyle, optional
             Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
             ``ticks`` and ``tick_labels``.
-        features : MapFeatures or dict, optional
+        features : MapFeatures, optional
             Map features and extent: ``coastlines``, ``borders``, ``states``,
             ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
             ``extent`` and ``grid_bounds``.
-        map_ticks : bool, MapTicks or dict, default False
+        map_ticks : bool or MapTicks, default False
             Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
             and ``ybins``.
-        vectors : VectorField or dict, optional
+        vectors : VectorField, optional
             Vector components ``u`` and ``v`` drawn as a quiver layer. Both must contain the animation dimension and are selected per frame.
             Arrow styling fields are documented on :class:`VectorField`.
-        clabel : bool, ContourLabels or dict, default False
+        clabel : bool or ContourLabels, default False
             Label line contours. Line contours are always labelled.
             Label fields are documented on :class:`ContourLabels`.
-        hillshade : bool, Hillshade or dict, default False
+        hillshade : bool or Hillshade, default False
             Draw grayscale relief beneath the field in each frame. ``True`` uses the
             :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
             exaggeration 1 and physical cell spacing for degree and metre grids.
@@ -642,7 +642,7 @@ class GeoDataArray(GeoBase):
         """Draw quiver arrows, using the bound array as the zonal component.
 
         The reference key is placed automatically below the axis decorations
-        (see :class:`xgeo.viz.plot_utils.AutoQuiverKey`).
+        (see :class:`xgeo.viz.primitives.AutoQuiverKey`).
 
         Parameters
         ----------
@@ -671,7 +671,7 @@ class GeoDataArray(GeoBase):
         """
         import matplotlib.pyplot as plt
 
-        from ..viz.plot_utils import plot_quiver
+        from ..viz.primitives import plot_quiver
 
         axis = plt.gca() if ax is None else ax
         quiver, quiver_key = plot_quiver(

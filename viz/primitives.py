@@ -3,7 +3,7 @@
 The functions in this module are intentionally stateless. Plotting functions
 receive an existing Matplotlib figure and axis, draw one layer, and return the
 resulting Matplotlib primitive. They can therefore be used independently of the
-stateful classes defined in :mod:`plotting`.
+stateful classes defined in :mod:`plot`.
 """
 
 from __future__ import annotations
@@ -50,24 +50,26 @@ if TYPE_CHECKING:
     from matplotlib.artist import Artist
     from matplotlib.axes import Axes
     from matplotlib.cm import ScalarMappable
-    from matplotlib.collections import PathCollection, QuadMesh
+    from matplotlib.collections import PathCollection
     from matplotlib.colorbar import Colorbar
     from matplotlib.colors import Colormap, Normalize
     from matplotlib.contour import QuadContourSet
     from matplotlib.figure import Figure
-    from matplotlib.image import AxesImage
+    from matplotlib.lines import Line2D
     from matplotlib.quiver import Quiver
     from matplotlib.text import Text
+
+    from .options import Hillshade
 
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", message=r".*program compiled against libxml.*")
 
 __all__ = [
-    "add_colorbar",
     "add_contour_labels",
     "add_map_features",
     "add_xy_ticks",
+    "colorbar",
     "compute_hillshade",
     "get_cax",
     "get_facet_figsize",
@@ -77,13 +79,8 @@ __all__ = [
     "hillshade_spacing",
     "norm_input",
     "normalize_subsample",
-    "plot_contour",
-    "plot_contourf",
-    "plot_default",
-    "plot_imshow",
-    "plot_pcolormesh",
+    "plot_field",
     "plot_quiver",
-    "plot_scatter",
     "plot_significance",
     "resolve_cmap_params",
     "select_facet",
@@ -1409,7 +1406,7 @@ def get_cax(
 
 
 def add_grid_boundary(
-    ax,
+    ax: Axes | cgeo.GeoAxes,
     lon: np.ndarray,
     lat: np.ndarray,
     *,
@@ -1417,8 +1414,35 @@ def add_grid_boundary(
     linewidth: float = 1,
     color: str = "black",
     zorder: float = 1,
-) -> None:
-    """Draw the exterior boundary of a 2-D lon-lat grid."""
+) -> Line2D:
+    """Draw the exterior boundary of a longitude-latitude grid.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes or cartopy.mpl.geoaxes.GeoAxes
+        Destination axis.
+    lon, lat : numpy.ndarray
+        Matching two-dimensional coordinate arrays, or one-dimensional
+        coordinates that are expanded with ``numpy.meshgrid``.
+    transform : cartopy.crs.CRS
+        Coordinate system of ``lon`` and ``lat``.
+    linewidth : float, default 1
+        Line width in points.
+    color : str, default "black"
+        Line color.
+    zorder : float, default 1
+        Drawing order.
+
+    Returns
+    -------
+    matplotlib.lines.Line2D
+        Closed line tracing the grid perimeter.
+
+    Raises
+    ------
+    ValueError
+        If ``lon`` and ``lat`` do not have matching shapes after expansion.
+    """
 
     lon = np.asarray(lon)
     lat = np.asarray(lat)
@@ -1449,7 +1473,7 @@ def add_grid_boundary(
         ]
     )
 
-    ax.plot(
+    (line,) = ax.plot(
         boundary_lon,
         boundary_lat,
         color=color,
@@ -1457,6 +1481,7 @@ def add_grid_boundary(
         transform=transform,
         zorder=zorder,
     )
+    return line
 
 
 def fmt_anim_title(
@@ -1494,7 +1519,7 @@ def fmt_anim_title(
     }
 
 
-def add_colorbar(
+def colorbar(
     mappable: ScalarMappable | FacetGrid,
     cax: Axes | None = None,
     ax: Axes | cgeo.GeoAxes | np.ndarray | None = None,
@@ -1561,8 +1586,9 @@ def add_colorbar(
         Explicit tick labels.
     powerlimits : tuple of int, default (-3, 3)
         Scientific notation limits for automatic tick formatting.
-    minimal_ticks : bool, default False
-        If True, reduce the number of ticks skipping every other one when possible.
+    minimal_ticks : bool, optional
+        If True, label every other boundary of a colorbar that has more than
+        six contour or norm boundaries. Disabled when omitted.
     scalar_formatter : bool, default True
         Format automatic tick labels with a math-text ``ScalarFormatter`` using
         *powerlimits*. If False, keep the default Matplotlib formatter.
@@ -1671,507 +1697,190 @@ def add_colorbar(
     return colorbar
 
 
-def plot_default(
-    data: xr.DataArray,
-    fig: Figure,
-    ax: Axes | cgeo.GeoAxes,
-    *,
-    x: str,
-    y: str,
-    cmap: str | Colormap | None = None,
-    norm: Normalize | None = None,
-    vmin: float | None = None,
-    vmax: float | None = None,
-    robust: bool = False,
-    rasterized: bool = False,
-    zorder: float = 1.0,
-    add_labels: bool = False,
-    **kwargs: Any,
-) -> Artist | ScalarMappable | QuadContourSet:
-    """Draw an xarray field using its default plotting method.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Two-dimensional scalar field.
-    fig : matplotlib.figure.Figure
-        Figure containing ``ax``.
-    ax : matplotlib.axes.Axes or cartopy.mpl.geoaxes.GeoAxes
-        Destination axis.
-    x, y : str
-        Horizontal coordinate names.
-    cmap : str or matplotlib.colors.Colormap, optional
-        Colormap.
-    norm : matplotlib.colors.Normalize, optional
-        Color normalization.
-    vmin, vmax : float, optional
-        Scalar color limits.
-    robust : bool, default False
-        Use percentile-based limits when supported by xarray.
-    rasterized : bool, default False
-        Rasterize dense output when supported.
-    zorder : float, default 1
-        Drawing order.
-    add_labels : bool, default False
-        Let xarray add axis labels and a title.
-    **kwargs
-        Additional arguments accepted by ``data.plot``.
-
-    Returns
-    -------
-    matplotlib primitive
-        Primitive returned by xarray.
-    """
-
-    options = is_defined(
-        x=x,
-        y=y,
-        cmap=cmap,
-        norm=norm,
-        vmin=vmin,
-        vmax=vmax,
-        robust=robust,
-        rasterized=rasterized,
-        zorder=zorder,
-        add_labels=add_labels,
-        add_colorbar=False,
-    )
-    options.update(kwargs)
-    options = is_geoaxes(ax, options)
-
-    # DataArray.plot is a dispatcher whose method-specific arguments are accepted
-    # through **kwargs. Signature filtering would therefore discard x/y, the
-    # Cartopy transform, add_colorbar=False, and all color-scaling options.
-    return data.plot(ax=ax, **options)
+#: Scalar-color arguments that each method applies. ``rasterized`` is handled
+#: by :func:`style_contours` for the contour methods and is not sent to xarray.
+_SCALAR_KEYS = {
+    "default": ("x", "y", "cmap", "norm", "vmin", "vmax", "robust", "rasterized"),
+    "pcolormesh": ("x", "y", "cmap", "norm", "vmin", "vmax", "robust", "rasterized"),
+    "imshow": ("x", "y", "cmap", "norm", "vmin", "vmax", "robust", "rasterized"),
+    "contourf": (
+        "x",
+        "y",
+        "cmap",
+        "norm",
+        "vmin",
+        "vmax",
+        "levels",
+        "extend",
+        "robust",
+    ),
+    "contour": ("x", "y", "cmap", "norm", "vmin", "vmax", "levels", "extend"),
+    "scatter": ("x", "y", "cmap", "norm", "vmin", "vmax"),
+}
 
 
-def plot_pcolormesh(
-    data: xr.DataArray,
-    fig: Figure,
-    ax: Axes | cgeo.GeoAxes,
-    *,
-    x: str,
-    y: str,
-    cmap: str | Colormap | None = None,
-    norm: Normalize | None = None,
-    vmin: float | None = None,
-    vmax: float | None = None,
-    robust: bool = False,
-    rasterized: bool = False,
-    zorder: float = 1.0,
-    add_labels: bool = False,
-    **kwargs: Any,
-) -> QuadMesh:
-    """Draw a pseudocolor mesh and return its ``QuadMesh`` primitive.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Two-dimensional scalar field.
-    fig : matplotlib.figure.Figure
-        Figure containing ``ax``.
-    ax : matplotlib.axes.Axes or cartopy.mpl.geoaxes.GeoAxes
-        Destination axis.
-    x, y : str
-        Horizontal coordinate names.
-    cmap, norm, vmin, vmax : optional
-        Scalar-color mapping parameters.
-    robust : bool, default False
-        Use percentile-based limits where supported.
-    rasterized : bool, default False
-        Rasterize the mesh.
-    zorder : float, default 1
-        Drawing order.
-    add_labels : bool, default False
-        Let xarray add labels.
-    **kwargs
-        Additional arguments forwarded to xarray pcolormesh plotting.
-
-    Returns
-    -------
-    matplotlib.collections.QuadMesh
-        Created mesh primitive.
-    """
-
-    options = is_defined(
-        x=x,
-        y=y,
-        cmap=cmap,
-        norm=norm,
-        vmin=vmin,
-        vmax=vmax,
-        robust=robust,
-        rasterized=rasterized,
-        zorder=zorder,
-        add_labels=add_labels,
-        add_colorbar=False,
-    )
-    options.update(kwargs)
-    options = is_geoaxes(ax, options)
-    return data.plot.pcolormesh(ax=ax, **options)
-
-
-def plot_contourf(
-    data: xr.DataArray,
-    fig: Figure,
-    ax: Axes | cgeo.GeoAxes,
-    *,
-    x: str,
-    y: str,
-    levels: int | Sequence[float] | np.ndarray | None = None,
-    cmap: str | Colormap | None = None,
-    colors: str | Sequence[str] | None = None,
-    norm: Normalize | None = None,
-    vmin: float | None = None,
-    vmax: float | None = None,
-    extend: Literal["neither", "both", "min", "max"] | None = None,
-    robust: bool = False,
-    alpha: float | None = None,
-    rasterized: bool = False,
-    zorder: float = 1.0,
-    add_labels: bool = False,
-    **kwargs: Any,
-) -> QuadContourSet:
-    """Draw filled contours and return a ``QuadContourSet`` primitive.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Two-dimensional scalar field.
-    fig : matplotlib.figure.Figure
-        Figure containing ``ax``.
-    ax : matplotlib.axes.Axes or cartopy.mpl.geoaxes.GeoAxes
-        Destination axis.
-    x, y : str
-        Horizontal coordinate names.
-    levels : int or sequence of float, optional
-        Contour intervals.
-    cmap, colors, norm, vmin, vmax : optional
-        Scalar-color mapping parameters.
-    extend : {"neither", "both", "min", "max"}, optional
-        Out-of-range coloring.
-    robust : bool, default False
-        Use percentile-based color limits.
-    alpha : float, optional
-        Layer opacity.
-    rasterized : bool, default False
-        Rasterize contour collections.
-    zorder : float, default 1
-        Drawing order.
-    add_labels : bool, default False
-        Let xarray add labels.
-    **kwargs
-        Additional arguments forwarded to xarray filled-contour plotting.
-
-    Returns
-    -------
-    matplotlib.contour.QuadContourSet
-        Created filled-contour primitive.
-    """
-
-    options = is_defined(
-        x=x,
-        y=y,
-        levels=levels,
-        cmap=cmap,
-        colors=colors,
-        norm=norm,
-        vmin=vmin,
-        vmax=vmax,
-        extend=extend,
-        robust=robust,
-        alpha=alpha,
-        zorder=zorder,
-        add_labels=add_labels,
-        add_colorbar=False,
-    )
-    options.update(kwargs)
-    options = is_geoaxes(ax, options)
-    artist = data.plot.contourf(ax=ax, **options)
-    style_contours(artist, rasterized)
-    return artist
-
-
-def plot_contour(
-    data: xr.DataArray,
-    fig: Figure,
-    ax: Axes | cgeo.GeoAxes,
-    *,
-    x: str,
-    y: str,
-    levels: int | Sequence[float] | np.ndarray | None = None,
-    cmap: str | Colormap | None = None,
-    colors: str | Sequence[str] | None = None,
-    linewidths: float | Sequence[float] | None = None,
-    linestyles: str | Sequence[str] | None = None,
-    norm: Normalize | None = None,
-    vmin: float | None = None,
-    vmax: float | None = None,
-    extend: Literal["neither", "both", "min", "max"] | None = None,
-    alpha: float | None = None,
-    rasterized: bool = False,
-    zorder: float = 2.0,
-    add_labels: bool = False,
-    **kwargs: Any,
-) -> QuadContourSet:
-    """Draw line contours and return a ``QuadContourSet`` primitive.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Two-dimensional scalar field.
-    fig : matplotlib.figure.Figure
-        Figure containing ``ax``.
-    ax : matplotlib.axes.Axes or cartopy.mpl.geoaxes.GeoAxes
-        Destination axis.
-    x, y : str
-        Horizontal coordinate names.
-    levels : int or sequence of float, optional
-        Contour levels.
-    cmap, colors, norm, vmin, vmax : optional
-        Scalar-color mapping parameters.
-    linewidths : float or sequence of float, optional
-        Contour line widths.
-    linestyles : str or sequence of str, optional
-        Contour line styles.
-    extend : {"neither", "both", "min", "max"}, optional
-        Out-of-range coloring.
-    alpha : float, optional
-        Layer opacity.
-    rasterized : bool, default False
-        Rasterize contour collections.
-    zorder : float, default 2
-        Drawing order.
-    add_labels : bool, default False
-        Let xarray add labels.
-    **kwargs
-        Additional arguments forwarded to xarray line-contour plotting.
-
-    Returns
-    -------
-    matplotlib.contour.QuadContourSet
-        Created line-contour primitive.
-    """
-
-    options = is_defined(
-        x=x,
-        y=y,
-        levels=levels,
-        cmap=cmap,
-        colors=colors,
-        linewidths=linewidths,
-        linestyles=linestyles,
-        norm=norm,
-        vmin=vmin,
-        vmax=vmax,
-        extend=extend,
-        alpha=alpha,
-        zorder=zorder,
-        add_labels=add_labels,
-        add_colorbar=False,
-    )
-    options.update(kwargs)
-    options = is_geoaxes(ax, options)
-    artist = data.plot.contour(ax=ax, **options)
-    style_contours(artist, rasterized)
-    return artist
-
-
-def plot_imshow(
-    data: xr.DataArray,
-    fig: Figure,
-    ax: Axes | cgeo.GeoAxes,
-    *,
-    x: str,
-    y: str,
-    cmap: str | Colormap | None = None,
-    norm: Normalize | None = None,
-    vmin: float | None = None,
-    vmax: float | None = None,
-    robust: bool = False,
-    interpolation: str | None = None,
-    origin: Literal["upper", "lower"] | None = None,
-    rasterized: bool = False,
-    zorder: float = 1.0,
-    add_labels: bool = False,
-    **kwargs: Any,
-) -> AxesImage:
-    """Draw an image and return its ``AxesImage`` primitive.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Two-dimensional scalar field.
-    fig : matplotlib.figure.Figure
-        Figure containing ``ax``.
-    ax : matplotlib.axes.Axes or cartopy.mpl.geoaxes.GeoAxes
-        Destination axis.
-    x, y : str
-        Horizontal coordinate names.
-    cmap, norm, vmin, vmax : optional
-        Scalar-color mapping parameters.
-    robust : bool, default False
-        Use percentile-based color limits.
-    interpolation : str, optional
-        Image interpolation method.
-    origin : {"upper", "lower"}, optional
-        Image origin.
-    rasterized : bool, default False
-        Rasterize the image.
-    zorder : float, default 1
-        Drawing order.
-    add_labels : bool, default False
-        Let xarray add labels.
-    **kwargs
-        Additional arguments forwarded to xarray image plotting.
-
-    Returns
-    -------
-    matplotlib.image.AxesImage
-        Created image primitive.
-    """
-
-    options = is_defined(
-        x=x,
-        y=y,
-        cmap=cmap,
-        norm=norm,
-        vmin=vmin,
-        vmax=vmax,
-        robust=robust,
-        interpolation=interpolation,
-        origin=origin,
-        rasterized=rasterized,
-        zorder=zorder,
-        add_labels=add_labels,
-        add_colorbar=False,
-    )
-    options.update(kwargs)
-    options = is_geoaxes(ax, options)
-    return data.plot.imshow(ax=ax, **options)
-
-
-def plot_scatter(
+def plot_field(
+    method: Literal[
+        "default", "pcolormesh", "contourf", "contour", "imshow", "scatter"
+    ],
     data: xr.DataArray | tuple[np.ndarray, np.ndarray],
     fig: Figure,
     ax: Axes | cgeo.GeoAxes,
     *,
     x: str | None = None,
     y: str | None = None,
-    hue: str | xr.DataArray | None = None,
-    markersize: str | xr.DataArray | None = None,
-    s: float | np.ndarray | None = None,
-    c: Any = None,
-    marker: str | None = None,
     cmap: str | Colormap | None = None,
     norm: Normalize | None = None,
     vmin: float | None = None,
     vmax: float | None = None,
-    alpha: float | None = None,
-    linewidths: float | Sequence[float] | None = None,
-    edgecolors: str | Sequence[str] | None = None,
-    colorizer: Any = None,
-    plotnonfinite: bool = False,
-    size: float | None = None,
-    zorder: float = 2.0,
+    levels: int | Sequence[float] | np.ndarray | None = None,
+    extend: Literal["neither", "both", "min", "max"] | None = None,
+    robust: bool = False,
+    rasterized: bool = False,
+    zorder: float = 1.0,
     add_labels: bool = False,
+    hillshade: Hillshade | None = None,
     **kwargs: Any,
-) -> PathCollection:
-    """Draw a scatter layer and return its ``PathCollection`` primitive.
+) -> Artist | ScalarMappable:
+    """Draw one scalar layer and return its Matplotlib primitive.
 
-    ``data`` may be an xarray field, in which case point coordinates are
-    resolved through xarray, or a two-element ``(x, y)`` tuple of NumPy arrays,
-    in which case the values are passed directly to :meth:`Axes.scatter`.
+    This is the single drawing function behind ``GeoPlot``, ``FacetedPlot`` and
+    ``Adder``. It calls the xarray plotting method that matches ``method``
+    (``data.plot`` for ``"default"``), always with ``add_colorbar=False`` and,
+    on a Cartopy axis, with a ``PlateCarree`` data transform.
+
+    The scalar-color arguments are sent only to the methods that use them:
+    ``levels`` and ``extend`` to the contour methods, ``robust`` to every method
+    except ``"contour"`` and ``"scatter"``, and ``rasterized`` to every method
+    except ``"scatter"``. Unused arguments are ignored. Every other keyword
+    (``colors``, ``alpha``, ``linewidths``, ``linestyles``, ``interpolation``,
+    ``origin``, ``hue``, ``markersize``, ``s``, ``c``, ``marker``,
+    ``edgecolors``, ``plotnonfinite`` and so on) is forwarded unchanged.
 
     Parameters
     ----------
+    method : {"default", "pcolormesh", "contourf", "contour", "imshow", "scatter"}
+        Plotting method.
     data : xarray.DataArray or tuple of numpy.ndarray
-        Source field containing point coordinates, or a two-element ``(x, y)``
-        tuple containing the point positions directly.
+        Two-dimensional field. ``"scatter"`` also accepts a two-element
+        ``(x, y)`` tuple of point coordinates, drawn with :meth:`Axes.scatter`
+        and without xarray normalization.
     fig : matplotlib.figure.Figure
         Figure containing ``ax``.
     ax : matplotlib.axes.Axes or cartopy.mpl.geoaxes.GeoAxes
         Destination axis.
     x, y : str, optional
-        Coordinate or variable names used for point locations when ``data`` is
-        an xarray.DataArray. Ignored for tuple input.
-    hue, markersize : str or xarray.DataArray, optional
-        Xarray variables controlling point color and marker size. Ignored for
-        tuple input.
-    s : float or array-like, optional
-        Marker area in points squared, matching :meth:`Axes.scatter`.
-    c : color or array-like, optional
-        Marker colors or scalar values mapped through ``cmap`` and ``norm``.
-    marker : str, optional
-        Marker style.
+        Horizontal coordinate names. Not used for tuple input.
     cmap : str or matplotlib.colors.Colormap, optional
-        Colormap used for scalar marker colors.
+        Colormap.
     norm : matplotlib.colors.Normalize, optional
-        Scalar normalization used with ``cmap``.
+        Color normalization.
     vmin, vmax : float, optional
-        Scalar-color limits.
-    alpha : float, optional
-        Marker opacity.
-    linewidths : float or sequence of float, optional
-        Marker-edge widths.
-    edgecolors : str or sequence of str, optional
-        Marker-edge colors.
-    colorizer : matplotlib.colorizer.Colorizer, optional
-        Matplotlib colorizer used to map scalar values to colors.
-    plotnonfinite : bool, default False
-        Plot points with nonfinite color values using the colormap bad color.
-    size : float, optional
-        Constant marker area retained as an alias for ``s``. ``s`` takes
-        precedence when both are provided.
-    zorder : float, default 2
+        Scalar color limits.
+    levels : int or sequence of float, optional
+        Contour levels.
+    extend : {"neither", "both", "min", "max"}, optional
+        Out-of-range contour coloring.
+    robust : bool, default False
+        Use percentile-based color limits.
+    rasterized : bool, default False
+        Rasterize the primitive.
+    zorder : float, default 1
         Drawing order.
     add_labels : bool, default False
-        Let xarray add labels for DataArray input. Ignored for tuple input.
+        Let xarray add axis labels and a title. Not used for tuple input.
+    hillshade : Hillshade, optional
+        Grayscale relief drawn beneath the field at ``zorder - 0.1``. The field
+        uses ``hillshade.field_alpha`` unless ``alpha`` is supplied. Requires
+        ``x`` and ``y`` and gridded input.
     **kwargs
-        Additional keyword arguments forwarded to xarray scatter plotting for
-        DataArray input or directly to :meth:`Axes.scatter` for tuple input.
-        This includes Matplotlib collection properties such as ``color``,
-        ``transform``, ``label``, ``picker``, and ``rasterized``.
+        Additional keyword arguments forwarded to the xarray plotting method or
+        to :meth:`Axes.scatter` for tuple input. For ``"scatter"``, ``size`` is
+        an alias for ``s``, and ``s`` takes precedence when both are given.
 
     Returns
     -------
-    matplotlib.collections.PathCollection
-        Created scatter primitive.
+    matplotlib primitive
+        ``QuadMesh`` for ``"pcolormesh"`` and ``"default"``, ``QuadContourSet``
+        for the contour methods, ``AxesImage`` for ``"imshow"`` and
+        ``PathCollection`` for ``"scatter"``.
+
+    Raises
+    ------
+    ValueError
+        If ``method`` is not a supported scalar plotting method, or if
+        ``hillshade`` is given without gridded data and ``x`` and ``y``.
+    TypeError
+        If tuple data is used with a method other than ``"scatter"``.
     """
-    scatter_size = s if s is not None else size
-    options = is_defined(
-        s=scatter_size,
-        c=c,
-        marker=marker,
-        cmap=cmap,
-        norm=norm,
-        vmin=vmin,
-        vmax=vmax,
-        alpha=alpha,
-        linewidths=linewidths,
-        edgecolors=edgecolors,
-        colorizer=colorizer,
-        plotnonfinite=plotnonfinite,
-        zorder=zorder,
-    )
-    options.update(kwargs)
-    options = is_geoaxes(ax, options)
+    if method not in _SCALAR_KEYS:
+        raise ValueError(f"unsupported plot method {method!r}")
+    points = isinstance(data, tuple)
+    if points and method != "scatter":
+        raise TypeError("tuple data is only supported by the 'scatter' method")
 
-    if isinstance(data, tuple):
-        x_data, y_data = data
-        return ax.scatter(x_data, y_data, **options)
-
-    options.update(
-        is_defined(
+    if hillshade is not None:
+        if points or x is None or y is None:
+            raise ValueError("hillshade requires gridded data with x and y names")
+        dx, dy = hillshade_spacing(data, x=x, y=y, spacing=hillshade.spacing)
+        shaded = compute_hillshade(
+            data.transpose(y, x),
+            z_factor=hillshade.vert_exag,
+            azimuth=hillshade.azimuth,
+            altitude=hillshade.altitude,
+            dx=dx,
+            dy=dy,
+        )
+        plot_field(
+            "default",
+            shaded,
+            fig,
+            ax,
             x=x,
             y=y,
-            hue=hue,
-            markersize=markersize,
-            add_labels=add_labels,
-            add_colorbar=False,
+            cmap=hillshade.cmap,
+            vmin=0,
+            vmax=1,
+            alpha=hillshade.alpha,
+            rasterized=rasterized,
+            zorder=zorder - 0.1,
+            **{k: kwargs[k] for k in ("transform", "infer_intervals") if k in kwargs},
         )
-    )
-    return data.plot.scatter(ax=ax, **options)
+        if hillshade.field_alpha is not None:
+            kwargs.setdefault("alpha", hillshade.field_alpha)
+
+    scalar = {
+        "x": x,
+        "y": y,
+        "cmap": cmap,
+        "norm": norm,
+        "vmin": vmin,
+        "vmax": vmax,
+        "levels": levels,
+        "extend": extend,
+        "robust": robust,
+        "rasterized": rasterized,
+    }
+    keys = _SCALAR_KEYS[method]
+    if points:
+        keys = tuple(key for key in keys if key not in ("x", "y"))
+    options = is_defined(**{key: scalar[key] for key in keys}, zorder=zorder)
+    if not points:
+        options.update(add_labels=add_labels, add_colorbar=False)
+    options.update(kwargs)
+    if method == "scatter":
+        size = options.pop("size", None)
+        if size is not None:
+            options.setdefault("s", size)
+    options = is_geoaxes(ax, options)
+
+    if points:
+        return ax.scatter(*data, **options)
+    plotter = data.plot if method == "default" else getattr(data.plot, method)
+    artist = plotter(ax=ax, **options)
+    if method in ("contour", "contourf"):
+        style_contours(artist, rasterized)
+    return artist
 
 
 def plot_quiver(

@@ -45,7 +45,7 @@ plot = t2m.xgeo.geoplot(
 
 The functional plotting entry point is `xgeo.plot.geoplot(t2m, ...)`.
 
-Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection`, `colorbar`, `colorbar_label`, `colorbar_orientation` and others) are plain keywords. Rarely changed settings are grouped into small frozen dataclasses, available as `xg.Hillshade` or `xg.plot.Hillshade`, `xg.plot.MapFeatures` and so on, and accepted by `geoplot` and `animate` in accessor and functional form. Each grouped parameter also accepts a plain `dict` with the same keys. Every field is named and typed; the classes take no open-ended keyword arguments, and an unknown key raises `TypeError`.
+Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection`, `colorbar`, `colorbar_label`, `colorbar_orientation` and others) are plain keywords. Rarely changed settings are grouped into small frozen dataclasses, available as `xg.Hillshade` or `xg.plot.Hillshade`, `xg.plot.MapFeatures` and so on, and accepted by `geoplot` and `animate` in accessor and functional form. Grouped parameters take an instance of the class, `None`, or a bool where a default group exists (`hillshade=True`, `map_ticks=True`, `clabel=True`). Plain dictionaries are not accepted and raise `TypeError`; construct the class with keyword arguments instead. All fields are keyword-only, named and typed, the classes take no open-ended keyword arguments, and an unknown field raises `TypeError`.
 
 | Parameter | Class | Fields |
 | --- | --- | --- |
@@ -86,7 +86,7 @@ ds["topo"].xgeo.animate(dim="time", hillshade=True, cmap="terrain", robust=True)
 The computation is also available separately for a two-dimensional `(y, x)` field:
 
 ```python
-from xgeo.viz.plot_utils import compute_hillshade, hillshade_spacing
+from xgeo.viz.primitives import compute_hillshade, hillshade_spacing
 
 dx, dy = hillshade_spacing(ds["topo"], x="lon", y="lat")
 shaded = compute_hillshade(ds["topo"], z_factor=1, dx=dx, dy=dy)
@@ -97,7 +97,9 @@ shaded = compute_hillshade(ds["topo"], z_factor=1, dx=dx, dy=dy)
 ```python
 regridded = ds.xgeo.regrid(target_grid, method="bilinear")
 coarse = ds.xgeo.regrid(1.0, method="conservative")
-curvilinear = ds_2d.xgeo.regrid(0.25, lat="lat", lon="lon", lat_b="lat_b", lon_b="lon_b")
+curvilinear = ds_2d.xgeo.regrid(
+    0.25, lat="lat", lon="lon", lat_b="lat_b", lon_b="lon_b"
+)
 wrapped = ds.xgeo.wrap_lon(convention="-180/180")
 with_lst = ds.xgeo.add_local_solar_time()
 trend = ds["t2m"].xgeo.trends(dim="time")
@@ -110,7 +112,22 @@ Serial NetCDF I/O uses Xarray's native interface, such as `ds.to_netcdf("output.
 
 ## Plotting and colormaps
 
-[`viz/plot.py`](viz/plot.py) implements geographic plotting and overlays. [`viz/cmaps.py`](viz/cmaps.py) provides palettes from the local IPCC tables, Matplotlib, and cmocean.
+Plotting is split into three modules under [`viz/`](viz/):
+
+* [`viz/plot.py`](viz/plot.py) holds the stateful classes and entry points: `GeoPlot` (figure, axes and every primitive it creates), `FacetedPlot` (facet layout), `Adder` (overlays, available as `GeoPlot.add`), `Animate` and the functions `geoplot`, `animate`, `theme`, `colorbar` and `create_figure`.
+* [`viz/primitives.py`](viz/primitives.py) holds the stateless drawing functions (`plot_field`, `plot_quiver`, `plot_significance`) and the input and colormap helpers. `plot_field(method, data, fig, ax, ...)` is the one function behind the base layer and every scalar overlay, for `"default"`, `"pcolormesh"`, `"contourf"`, `"contour"`, `"imshow"` and `"scatter"`. It sends `levels`, `extend`, `robust` and `rasterized` only to the methods that use them and forwards every other keyword to xarray or Matplotlib. `"scatter"` also accepts an `(x, y)` tuple of arrays.
+* [`viz/options.py`](viz/options.py) holds the option dataclasses described above.
+
+Overlays are added to an existing plot with `GeoPlot.add` and can be chained. Each call draws on every panel of a faceted plot, records its primitives in `GeoPlot.layers` and returns the plot:
+
+```python
+plot = t2m.xgeo.geoplot(method="pcolormesh", features=xg.MapFeatures(states=False))
+plot.add.contour(t2m, levels=5, clabel=xg.ContourLabels(fmt="%.0f")).add.grid_boundary()
+```
+
+The scalar overlays are `add.plot`, `add.pcolormesh`, `add.contourf`, `add.contour`, `add.imshow` and `add.scatter`, which accepts an `xarray.DataArray` or an `(x, y)` tuple of arrays. `add.quiver`, `add.significance`, `add.colorbar` and `add.grid_boundary` complete the set.
+
+[`viz/cmaps.py`](viz/cmaps.py) provides palettes from the local IPCC tables, Matplotlib, and cmocean.
 
 ```python
 from xgeo import cmaps

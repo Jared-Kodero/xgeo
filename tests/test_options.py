@@ -21,7 +21,7 @@ from xgeo.viz.options import (
     Significance,
     VectorField,
 )
-from xgeo.viz.plot_utils import EARTH_RADIUS_M, hillshade_spacing
+from xgeo.viz.primitives import EARTH_RADIUS_M, hillshade_spacing
 
 
 @pytest.fixture
@@ -56,11 +56,10 @@ def base(quiet):
 
 
 class TestCoerce:
-    def test_bool_none_mapping_instance(self):
+    def test_bool_none_instance(self):
         assert Hillshade.coerce(None) is None
         assert Hillshade.coerce(False) is None
         assert Hillshade.coerce(True) == Hillshade()
-        assert Hillshade.coerce({"azimuth": 270}).azimuth == 270
         option = Hillshade(altitude=10)
         assert Hillshade.coerce(option) is option
 
@@ -68,9 +67,18 @@ class TestCoerce:
         with pytest.raises(TypeError, match="Hillshade"):
             Hillshade.coerce(3)
 
-    def test_unknown_mapping_key(self):
+    @pytest.mark.parametrize(
+        "cls", [ColorbarStyle, ContourLabels, Hillshade, MapFeatures, MapTicks]
+    )
+    def test_mapping_rejected(self, cls):
+        with pytest.raises(TypeError, match="got dict"):
+            cls.coerce({})
+
+    def test_option_fields_are_keyword_only(self):
         with pytest.raises(TypeError):
-            Hillshade.coerce({"azimut": 1})
+            Hillshade(270.0)
+        with pytest.raises(TypeError):
+            MapTicks(3, 4)
 
     def test_required_fields_reject_true(self, field):
         with pytest.raises(TypeError, match="required"):
@@ -87,7 +95,7 @@ class TestCoerce:
             with pytest.raises(TypeError):
                 cls(**required, kwargs={"color": "k"})
             with pytest.raises(TypeError):
-                cls.coerce({**required, "not_a_field": 1})
+                cls(**required, not_a_field=1)
 
     def test_arguments_drop_unset_fields(self, field):
         vectors = VectorField(u=field, v=field, color="k", scale=2.0)
@@ -195,16 +203,16 @@ class TestGroupsInPlots:
         assert result.map_features == []
         assert result.axes.get_xticks().size > 0
 
-    def test_features_dict(self, field):
-        result = plot.geoplot(
-            field,
-            x="lon",
-            y="lat",
-            projection="PlateCarree",
-            figsize=(4, 3),
-            features={"coastlines": False, "borders": False, "states": False, "ocean": False, "land": False},
-        )
-        assert result.map_features == []
+    def test_features_dict_rejected(self, field):
+        with pytest.raises(TypeError, match="MapFeatures"):
+            plot.geoplot(
+                field,
+                x="lon",
+                y="lat",
+                projection="PlateCarree",
+                figsize=(4, 3),
+                features={"coastlines": False},
+            )
 
     def test_significance_group(self, field, quiet):
         p = xr.where(field < 3, 0.01, 0.9)

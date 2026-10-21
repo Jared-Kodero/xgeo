@@ -46,9 +46,6 @@ without it.
 from __future__ import annotations
 
 import os
-
-os.environ.setdefault("HDF5_USE_FILE_LOCKING", "FALSE")
-
 import warnings
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
@@ -208,6 +205,6 @@ except Exception:
 apply_widget_css()
 dask.diagnostics.ProgressBar = DaskProgressBar
 
-# from .update import _self_update  # noqa: E402
+# from .update import _self_update
 
 # _self_update()

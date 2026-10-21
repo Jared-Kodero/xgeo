@@ -14,7 +14,7 @@ from matplotlib.collections import QuadMesh
 from matplotlib.colors import LightSource
 from xgeo.viz import plot
 from xgeo.viz.options import Hillshade, MapFeatures
-from xgeo.viz.plot_utils import compute_hillshade, hillshade_spacing
+from xgeo.viz.primitives import compute_hillshade, hillshade_spacing, plot_field
 
 
 @pytest.fixture
@@ -99,7 +99,8 @@ def test_coordinate_order_and_transpose(terrain, reverse_lat, reverse_lon):
         lon=slice(None, None, -1 if reverse_lon else 1),
     ).transpose("lon", "lat")
     fig, ax = plt.subplots()
-    plot._plot_scalar(
+    plot_field(
+        "default",
         field,
         fig,
         ax,

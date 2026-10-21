@@ -118,7 +118,7 @@ class Hillshade(_Option):
     azimuth: float = 315.0
     altitude: float = 45.0
     alpha: float = 1.0
-    field_alpha: float | None = 0.4
+    field_alpha: float | None = 0.65
     cmap: str | Colormap = "gray"
     spacing: Literal["auto", "pixel"] | tuple[float, float] = "auto"
     hillshade_only: bool = False

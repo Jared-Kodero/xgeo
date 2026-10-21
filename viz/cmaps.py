@@ -5,9 +5,11 @@ Each registered colormap is exposed as a module level callable, for example::
 
     from xgeo import cmaps
     cmaps.low_high(span=(0, 0.5)).reversed()
+    cmaps.low_high_r(span=(0, 0.5))
 
 Callables are produced on demand by ``__getattr__`` (PEP 562), so the user
 facing access is unchanged while no Python source is generated at import time.
+Every colormap is also available in reversed form through the ``_r`` suffix.
 Editor autocomplete and static type checking are served by the companion stub
 ``cmaps.pyi``, which contains only typed signatures and is therefore never
 executed. Regenerate the stub after the set of colormaps changes with::
@@ -127,7 +129,9 @@ def _registry() -> dict[str, str]:
     Map each public function name to its canonical backend name.
 
     The public name preserves the actual colormap name if it is a valid Python
-    identifier, otherwise it falls back to lowercase or a valid form.
+    identifier, otherwise it falls back to lowercase or a valid form. Reversed
+    names (``_r``) are not stored; they are resolved on demand from the base
+    name.
     """
     text_names = [f.stem for f in _SRC_DIR.glob("*.txt")]
     all_names = text_names + _PLT_CMAP_LIST + _CMOCEAN_CMAP_LIST
@@ -158,6 +162,14 @@ def create(public_name: str, source_name: str):
         format: Literal["linear", "listed", "hex"] = "linear",
         gamma: float = 1.0,
     ):
+
+        assert 0.0 <= span[0] <= span[1] <= 1.0, "span must be within [0, 1]"
+        assert add_colors is None or isinstance(add_colors, dict), (
+            "add_colors must be a dict or None"
+        )
+        assert format in {"linear", "listed", "hex"}, (
+            "format must be one of 'linear', 'listed', 'hex'"
+        )
         return get_cmap(source_name, N, span, add_colors, format, gamma)
 
     cmap.__name__ = public_name
@@ -170,18 +182,15 @@ def __getattr__(name: str):
     registry = _registry()
     if name in registry:
         return create(name, registry[name])
+    if name.endswith("_r") and name.removesuffix("_r") in registry:
+        base = name.removesuffix("_r")
+        return create(name, registry[base] + "_r")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def get(name: str) -> ColorMap:
-    """Return the colormap corresponding to the given name."""
-    if not name.endswith("_r"):
-        return load_cmap(name)
-    return load_cmap(name.replace("_r", "")).reversed()
-
-
 def __dir__():
-    return sorted(_PUBLIC | cmap_index())
+    names = cmap_index()
+    return sorted(_PUBLIC | names | {f"{n}_r" for n in names})
 
 
 def classify_cmap(cmap: str | ColorMap) -> str:
@@ -239,7 +248,12 @@ def array_rep(cmap: ColorMap) -> np.ndarray:
 
 
 def load_cmap(name: str) -> ColorMap:
-    """Resolve a colormap by name across the text, matplotlib and cmocean backends."""
+    """Resolve a colormap by name across the text, matplotlib and cmocean backends.
+
+    A trailing ``_r`` returns the reversed colormap. Names that exist directly
+    in a backend with the ``_r`` suffix (matplotlib, cmocean) are used as is;
+    otherwise the base colormap is resolved and reversed.
+    """
     for candidate in (name, name.lower(), name.capitalize(), name.upper()):
         cmap_file = _SRC_DIR / f"{candidate}.txt"
         if cmap_file.exists():
@@ -250,6 +264,9 @@ def load_cmap(name: str) -> ColorMap:
             return _PLT_CMAPS[candidate]
         if candidate in _CMOCEAN_CMAP_LIST:
             return getattr(cmocean.cm, candidate)
+
+    if name.endswith("_r") and len(name) > 2:
+        return load_cmap(name.removesuffix("_r")).reversed()
     raise KeyError(f"Colormap '{name}' is not valid.")
 
 
@@ -288,7 +305,7 @@ def slice_cmap(
         )
 
 
-def add_colors(
+def insert_colors(
     obj: str | list[str],
     cmap: ColorMap,
     idx: int | None = None,
@@ -384,7 +401,7 @@ def get_cmap(
                 raise TypeError("Keys in `add_colors` must be integers.")
             if not isinstance(v, (list, tuple, str)):
                 raise TypeError("Values in `add_colors` must be str or list[str].")
-            adjusted = add_colors(
+            adjusted = insert_colors(
                 obj=v,
                 idx=k,
                 cmap=res,
@@ -529,9 +546,8 @@ from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from IPython.display import DisplayHandle
 type ColorMap = ListedColormap | LinearSegmentedColormap
 
-def get(name: str) -> ColorMap: ...
 def new(colors: list[str], N: int | None = None, *, format: Literal["linear", "listed", "hex"] = "linear", gamma: float = 1.0, name: str | None = None, save: bool = False) -> ColorMap | list[str]: ...
-def concat(cmap1: ColorMap, cmap2: ColorMap, N: int | None = None, *, format: Literal["linear", "listed", "hex"] = "linear", gamma: float = 1.0) -> ColorMap | list[str]: ...
+def concat(cmap1: ColorMap | str, cmap2: ColorMap | str, N: int | None = None, *, format: Literal["linear", "listed", "hex"] = "linear", gamma: float = 1.0) -> ColorMap | list[str]: ...
 def available(show: bool = True) -> list[str] | DisplayHandle: ...
 """
 
@@ -539,8 +555,9 @@ def available(show: bool = True) -> list[str] | DisplayHandle: ...
 def build_stub_text() -> str:
     """Return the full text of the ``cmaps.pyi`` type stub."""
     lines = [_STUB_HEADER]
-    for name in list(_registry().keys()):
+    for name in _registry():
         lines.append(f"def {name}{_CMAP_SIGNATURE}")
+        lines.append(f"def {name}_r{_CMAP_SIGNATURE}")
     return "\n".join(lines) + "\n"
 
 

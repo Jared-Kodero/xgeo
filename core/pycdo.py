@@ -31,28 +31,13 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Literal
 
 import xarray as xr
 
-Method = Literal["remapbil", "remapbic", "remapnn", "remapdis", "remapcon", "remaplaf"]
+METHODS = ("remapbil", "remapbic", "remapnn", "remapdis", "remapcon", "remaplaf")
 
-_METHODS = ("remapbil", "remapbic", "remapnn", "remapdis", "remapcon", "remaplaf")
-_NO_EXTRAPOLATE = ("remapdis", "remapcon")
-_LAT_NAMES = ("lat", "latitude")
-_LON_NAMES = ("lon", "longitude")
 
-__all__ = [
-    "mergetime",
-    "remap",
-    "remapbic",
-    "remapbil",
-    "remapcon",
-    "remapdis",
-    "remaplaf",
-    "remapnn",
-    "run",
-]
+__all__ = ["mergetime", "remap", "run"]
 
 
 def run(
@@ -62,16 +47,17 @@ def run(
 ) -> subprocess.CompletedProcess[str]:
     """Run a CDO command, e.g. ``run(["-timmean", "in.nc", "out.nc"])``.
 
-    ``cmd`` is a list or a string (split with :func:`shlex.split`); items may be
-    paths. Options ``-s -O -P <n>`` are added. A leading ``"cdo"`` in ``cmd`` is
-    ignored. ``env`` is applied to the subprocess only. Raises RuntimeError with
-    the captured stderr if CDO is missing or fails.
+    ``cmd`` is a list (items may be paths) or a string split with
+    :func:`shlex.split`. The options ``-s -O -P <n>`` are prepended and a
+    leading ``"cdo"`` in ``cmd`` is ignored. ``env`` applies to the subprocess
+    only. Raises RuntimeError with the captured stderr if CDO is missing or
+    fails.
     """
     if not shutil.which("cdo"):
         raise RuntimeError("CDO executable not found in PATH.")
-    cmd = shlex.split(cmd) if isinstance(cmd, str) else [os.fspath(c) for c in cmd]
-    if cmd and cmd[0] == "cdo":
-        cmd = cmd[1:]
+    args = shlex.split(cmd) if isinstance(cmd, str) else [os.fspath(c) for c in cmd]
+    if args and args[0] == "cdo":
+        args = args[1:]
     threads = n_threads or min(8, os.cpu_count() or 1)
     full_env = {
         "CDO_VERSION_INFO": "false",
@@ -81,7 +67,7 @@ def run(
     }
     try:
         return subprocess.run(
-            ["cdo", "-s", "-O", "-P", str(threads), *cmd],
+            ["cdo", "-s", "-O", "-P", str(threads), *args],
             check=True,
             text=True,
             capture_output=True,
@@ -91,34 +77,11 @@ def run(
         raise RuntimeError(f"CDO failed: {(exc.stderr or '').strip()}") from exc
 
 
-def _tag_lonlat(ds: xr.Dataset, lat: str, lon: str) -> xr.Dataset:
-    """Return a copy whose lat/lon coordinates carry the CF attributes CDO needs.
-
-    Without ``units`` and ``standard_name`` CDO aborts with "Unsupported
-    generic coordinates", which is what plain xarray objects trigger.
-    """
-    for name, std, units, axis in (
-        (lat, "latitude", "degrees_north", "Y"),
-        (lon, "longitude", "degrees_east", "X"),
-    ):
-        if name not in ds.coords:
-            raise ValueError(f"Input must have a {name!r} coordinate.")
-        if ds[name].ndim != 1:
-            raise ValueError(f"{name!r} must be one-dimensional for CDO remapping.")
-    ds = ds.copy()
-    for name, std, units, axis in (
-        (lat, "latitude", "degrees_north", "Y"),
-        (lon, "longitude", "degrees_east", "X"),
-    ):
-        ds[name].attrs.update(standard_name=std, units=units, axis=axis)
-    return ds
-
-
 def remap(
     obj: Path | str | xr.DataArray | xr.Dataset,
     outfile: Path | str | None = None,
     *,
-    method: Method = "remapbil",
+    method: str = "remapbil",
     resolution: float = 0.25,
     bbox: tuple[float, float, float, float] = (0, -90, 360, 90),
     extrapolate: bool = False,
@@ -134,37 +97,39 @@ def remap(
     ----------
     obj : path, DataArray or Dataset
     outfile : output path. If given, the path is returned. If omitted, the
-        result is returned as an xarray object (DataArray if ``obj`` was one).
+        result is returned as an xarray object (a DataArray if ``obj`` was one).
     method : one of remapbil, remapbic, remapnn, remapdis, remapcon, remaplaf.
     resolution : target spacing in degrees; bbox spans must be multiples of it.
     bbox : (lon_min, lat_min, lon_max, lat_max) in degrees. A 360 degree
         longitude span omits the duplicate end meridian.
-    extrapolate : set REMAP_EXTRAPOLATE=on (not valid for remapdis, remapcon).
-    lat, lon : coordinate names of an xarray input. ``latitude``/``longitude``
-        are used when the default names are absent. Ignored for file input.
+    extrapolate : set REMAP_EXTRAPOLATE=on (invalid for remapdis and remapcon).
+    lat, lon : coordinate names of an xarray input. ``latitude`` and
+        ``longitude`` are used when the defaults are absent. Ignored for file
+        input.
     compression : CDO ``-z`` value.
     datatype : CDO ``-b`` value.
     """
-    if method not in _METHODS:
-        raise ValueError(f"method must be one of {list(_METHODS)}, got {method!r}.")
-    if extrapolate and method in _NO_EXTRAPOLATE:
+    if method not in METHODS:
+        raise ValueError(f"method must be one of {list(METHODS)}, got {method!r}.")
+    if extrapolate and method in ("remapdis", "remapcon"):
         raise ValueError(f"extrapolate is not supported for {method!r}.")
+
     lon0, lat0, lon1, lat1 = bbox
     if lon1 <= lon0 or lat1 <= lat0 or resolution <= 0:
         raise ValueError(f"Invalid bbox {bbox} or resolution {resolution}.")
 
-    def n_steps(span: float) -> int:
+    # Number of grid points per axis; bbox spans must be whole multiples of resolution.
+    counts = []
+    for span in (lon1 - lon0, lat1 - lat0):
         n = round(span / resolution)
         if not math.isclose(n * resolution, span, abs_tol=1e-9):
             raise ValueError(
                 f"Span {span} is not a multiple of resolution {resolution}."
             )
-        return n
-
-    nx = n_steps(lon1 - lon0) + (
-        0 if math.isclose(lon1 - lon0, 360.0, abs_tol=1e-9) else 1
-    )
-    ny = n_steps(lat1 - lat0) + 1
+        counts.append(n)
+    is_global = math.isclose(lon1 - lon0, 360.0, abs_tol=1e-9)
+    nx = counts[0] + (0 if is_global else 1)
+    ny = counts[1] + 1
     grid = (
         f"gridtype = lonlat\nxsize = {nx}\nysize = {ny}\n"
         f"xfirst = {lon0}\nxinc = {resolution}\nyfirst = {lat0}\nyinc = {resolution}\n"
@@ -180,12 +145,25 @@ def remap(
         if isinstance(obj, (xr.DataArray, xr.Dataset)):
             infile = tmp / "in.nc"
             if isinstance(obj, xr.DataArray):
-                da_name = obj.name if obj.name is not None else "var"
+                da_name = "var" if obj.name is None else obj.name
                 obj = obj.to_dataset(name=da_name)
-            names = set(obj.coords)
-            lat = next((n for n in (lat, *_LAT_NAMES) if n in names), lat)
-            lon = next((n for n in (lon, *_LON_NAMES) if n in names), lon)
-            _tag_lonlat(obj, lat, lon).to_netcdf(infile)
+            lat = next((n for n in (lat, "lat", "latitude") if n in obj.coords), lat)
+            lon = next((n for n in (lon, "lon", "longitude") if n in obj.coords), lon)
+
+            # CDO aborts on coordinates without CF units and standard_name.
+            ds = obj.copy()
+            for name, std, units, axis in (
+                (lat, "latitude", "degrees_north", "Y"),
+                (lon, "longitude", "degrees_east", "X"),
+            ):
+                if name not in ds.coords:
+                    raise ValueError(f"Input must have a {name!r} coordinate.")
+                if ds[name].ndim != 1:
+                    raise ValueError(
+                        f"{name!r} must be one-dimensional for CDO remapping."
+                    )
+                ds[name].attrs.update(standard_name=std, units=units, axis=axis)
+            ds.to_netcdf(infile)
         else:
             infile = Path(obj)
             if not infile.exists():
@@ -194,28 +172,26 @@ def remap(
         out = Path(outfile) if outfile is not None else tmp / "out.nc"
         out.parent.mkdir(parents=True, exist_ok=True)
         run(
-            [
-                "-b",
-                datatype,
-                "-z",
-                compression,
-                f"{method},{grid_file}",
-                str(infile),
-                str(out),
-            ],
+            ["-b", datatype, "-z", compression, f"{method},{grid_file}", infile, out],
             n_threads=n_threads,
             env={"REMAP_EXTRAPOLATE": "on"} if extrapolate else None,
         )
         if outfile is not None:
             return out
-        with xr.open_dataset(out) as ds:
-            ds = ds.load()  # read into memory before the temp directory is removed
-        if lat != "lat" or lon != "lon":
-            ds = ds.rename({k: v for k, v in (("lat", lat), ("lon", lon)) if k in ds})
-        if da_name is None:
-            return ds
-        da = ds[da_name]
-        return da.rename(None) if source_name is None else da
+
+        with xr.open_dataset(out) as result:
+            result = (
+                result.load()
+            )  # read into memory before the temp directory is removed
+
+    # CDO writes "lat" and "lon"; restore the caller's coordinate names.
+    result = result.rename(
+        {k: v for k, v in (("lat", lat), ("lon", lon)) if k in result and k != v}
+    )
+    if da_name is None:
+        return result
+    da = result[da_name]
+    return da.rename(None) if source_name is None else da
 
 
 def mergetime(
@@ -230,33 +206,189 @@ def mergetime(
     paths = sorted(Path(f).resolve() for f in infiles)
     if not paths:
         raise ValueError("No input files provided.")
-    missing = [p for p in paths if not p.exists()]
-    if missing:
-        raise FileNotFoundError(f"Input file does not exist: {missing[0]}")
+    for p in paths:
+        if not p.exists():
+            raise FileNotFoundError(f"Input file does not exist: {p}")
     out = Path(outfile).resolve()
     if out in paths:
         raise ValueError(f"outfile must not be one of the inputs: {out}")
     out.parent.mkdir(parents=True, exist_ok=True)
     run(
-        ["-b", datatype, "-z", compression, "-mergetime", *map(str, paths), str(out)],
+        ["-b", datatype, "-z", compression, "-mergetime", *paths, out],
         n_threads=n_threads,
     )
     return out
 
 
-def _fixed(method: Method):
-    def wrapper(obj, outfile=None, **kwargs):
-        return remap(obj, outfile, method=method, **kwargs)
+def remapbil(
+    obj: Path | str | xr.DataArray | xr.Dataset,
+    outfile: Path | str | None = None,
+    *,
+    resolution: float = 0.25,
+    bbox: tuple[float, float, float, float] = (0, -90, 360, 90),
+    extrapolate: bool = False,
+    lat: str = "lat",
+    lon: str = "lon",
+    compression: str = "zip",
+    datatype: str = "F32",
+    n_threads: int | None = None,
+) -> Path | xr.DataArray | xr.Dataset:
+    """Bilinear interpolation. See :func:`remap`."""
+    return remap(
+        obj,
+        outfile,
+        method="remapbil",
+        resolution=resolution,
+        bbox=bbox,
+        extrapolate=extrapolate,
+        lat=lat,
+        lon=lon,
+        compression=compression,
+        datatype=datatype,
+        n_threads=n_threads,
+    )
 
-    wrapper.__name__ = method
-    wrapper.__qualname__ = method
-    wrapper.__doc__ = f"``remap`` with ``method={method!r}``. See :func:`remap`."
-    return wrapper
+
+def remapbic(
+    obj: Path | str | xr.DataArray | xr.Dataset,
+    outfile: Path | str | None = None,
+    *,
+    resolution: float = 0.25,
+    bbox: tuple[float, float, float, float] = (0, -90, 360, 90),
+    extrapolate: bool = False,
+    lat: str = "lat",
+    lon: str = "lon",
+    compression: str = "zip",
+    datatype: str = "F32",
+    n_threads: int | None = None,
+) -> Path | xr.DataArray | xr.Dataset:
+    """Bicubic interpolation. See :func:`remap`."""
+    return remap(
+        obj,
+        outfile,
+        method="remapbic",
+        resolution=resolution,
+        bbox=bbox,
+        extrapolate=extrapolate,
+        lat=lat,
+        lon=lon,
+        compression=compression,
+        datatype=datatype,
+        n_threads=n_threads,
+    )
 
 
-remapbil = _fixed("remapbil")
-remapbic = _fixed("remapbic")
-remapnn = _fixed("remapnn")
-remapdis = _fixed("remapdis")
-remapcon = _fixed("remapcon")
-remaplaf = _fixed("remaplaf")
+def remapnn(
+    obj: Path | str | xr.DataArray | xr.Dataset,
+    outfile: Path | str | None = None,
+    *,
+    resolution: float = 0.25,
+    bbox: tuple[float, float, float, float] = (0, -90, 360, 90),
+    extrapolate: bool = False,
+    lat: str = "lat",
+    lon: str = "lon",
+    compression: str = "zip",
+    datatype: str = "F32",
+    n_threads: int | None = None,
+) -> Path | xr.DataArray | xr.Dataset:
+    """Nearest neighbour. See :func:`remap`."""
+    return remap(
+        obj,
+        outfile,
+        method="remapnn",
+        resolution=resolution,
+        bbox=bbox,
+        extrapolate=extrapolate,
+        lat=lat,
+        lon=lon,
+        compression=compression,
+        datatype=datatype,
+        n_threads=n_threads,
+    )
+
+
+def remapdis(
+    obj: Path | str | xr.DataArray | xr.Dataset,
+    outfile: Path | str | None = None,
+    *,
+    resolution: float = 0.25,
+    bbox: tuple[float, float, float, float] = (0, -90, 360, 90),
+    extrapolate: bool = False,
+    lat: str = "lat",
+    lon: str = "lon",
+    compression: str = "zip",
+    datatype: str = "F32",
+    n_threads: int | None = None,
+) -> Path | xr.DataArray | xr.Dataset:
+    """Distance-weighted average. See :func:`remap`."""
+    return remap(
+        obj,
+        outfile,
+        method="remapdis",
+        resolution=resolution,
+        bbox=bbox,
+        extrapolate=extrapolate,
+        lat=lat,
+        lon=lon,
+        compression=compression,
+        datatype=datatype,
+        n_threads=n_threads,
+    )
+
+
+def remapcon(
+    obj: Path | str | xr.DataArray | xr.Dataset,
+    outfile: Path | str | None = None,
+    *,
+    resolution: float = 0.25,
+    bbox: tuple[float, float, float, float] = (0, -90, 360, 90),
+    extrapolate: bool = False,
+    lat: str = "lat",
+    lon: str = "lon",
+    compression: str = "zip",
+    datatype: str = "F32",
+    n_threads: int | None = None,
+) -> Path | xr.DataArray | xr.Dataset:
+    """First-order conservative. See :func:`remap`."""
+    return remap(
+        obj,
+        outfile,
+        method="remapcon",
+        resolution=resolution,
+        bbox=bbox,
+        extrapolate=extrapolate,
+        lat=lat,
+        lon=lon,
+        compression=compression,
+        datatype=datatype,
+        n_threads=n_threads,
+    )
+
+
+def remaplaf(
+    obj: Path | str | xr.DataArray | xr.Dataset,
+    outfile: Path | str | None = None,
+    *,
+    resolution: float = 0.25,
+    bbox: tuple[float, float, float, float] = (0, -90, 360, 90),
+    extrapolate: bool = False,
+    lat: str = "lat",
+    lon: str = "lon",
+    compression: str = "zip",
+    datatype: str = "F32",
+    n_threads: int | None = None,
+) -> Path | xr.DataArray | xr.Dataset:
+    """Largest area fraction. See :func:`remap`."""
+    return remap(
+        obj,
+        outfile,
+        method="remaplaf",
+        resolution=resolution,
+        bbox=bbox,
+        extrapolate=extrapolate,
+        lat=lat,
+        lon=lon,
+        compression=compression,
+        datatype=datatype,
+        n_threads=n_threads,
+    )

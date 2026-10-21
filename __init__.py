@@ -61,6 +61,7 @@ from .core.xnpy import to_xnpy
 
 if TYPE_CHECKING:
     from .core import operator, preprocess, stats
+    from .core import pycdo as cdo
     from .core.climtools import (
         LockedLogger,
         LockFile,
@@ -103,6 +104,7 @@ __all__ = [
     "SetupDask",
     "SharedMemoryObject",
     "add_local_solar_time",
+    "cdo",
     "cmaps",
     "exclude_key",
     "fillgaps",
@@ -156,6 +158,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str | None]] = {
     "sel_transect": (".core.xr_utils", "sel_transect"),
     "stats": (".core.stats", None),
     "to_lon180": (".core.xr_utils", "to_lon180"),
+    "cdo": (".core.pycdo", None),
     "to_xnpy": (".core.xnpy", "to_xnpy"),
 }
 

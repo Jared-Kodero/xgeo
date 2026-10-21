@@ -18,7 +18,7 @@ The top level exposes the geospatial and plotting API:
 and the shared utilities: ``LockedLogger``, ``LockFile``, ``RedirectStreams``,
 ``locked_print``, ``exclude_key``, ``nproc``, ``SerialProgressBar``,
 ``DaskProgressBar`` and ``operator``. The CDO wrapper is the
-module :mod:`xgeo.cdo.pycdo`.
+module :mod:`xgeo.cdo` (``xgeo.core.pycdo``).
 
 Serial NetCDF output uses xarray's native ``to_netcdf`` method. Distributed
 arrays, MPI contexts, and parallel NetCDF output belong to the independent

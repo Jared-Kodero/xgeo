@@ -335,18 +335,16 @@ def wrap_lon(
     if lon not in data.coords:
         raise ValueError(f"Data must contain {lon!r} coordinate.")
 
-    attrs = data[lon].attrs
     if convention == "-180/180":
-        new_lon = data[lon] = (data[lon] + 180) % 360 - 180
+        new_lon = (data[lon] + 180) % 360 - 180
     elif convention == "0/360":
-        new_lon = data[lon] = data[lon] % 360
+        new_lon = data[lon] % 360
     else:
         raise ValueError(f"Unsupported convention: {convention!r}")
 
-    data = data.assign_coords({lon: new_lon})
-    data[lon].attrs = attrs
-
-    return data.sortby(lon)
+    # assign_coords returns a new object, so the caller's data is not modified
+    new_lon = new_lon.assign_attrs(data[lon].attrs)
+    return data.assign_coords({lon: new_lon}).sortby(lon)
 
 
 def coord_id(coord: xr.DataArray) -> str:

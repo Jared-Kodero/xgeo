@@ -160,7 +160,7 @@ See [`core/xnpy.py`](core/xnpy.py) for storage options.
 | `xgeo.plot` | Cartopy geographic plotting |
 | `xgeo.stats` | Trends, correlations, and significance testing |
 | `xgeo.cmaps` | Scientific colormaps |
-| `xgeo.cdo.pycdo` | CDO/NCO command-line wrapper |
+| `xgeo.cdo` | CDO command-line wrapper (`remapbil`, `remapcon`, `mergetime`, `run`) |
 | `xrmpi` | Separate package for distributed arrays and parallel I/O |
 
 ## Links

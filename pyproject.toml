@@ -69,7 +69,6 @@ dev = ["typing_extensions", "build", "twine", "pytest", "ruff"]
 # file, rather than assuming a src-layout that does not exist here.
 packages = [
     "xgeo",
-    "xgeo.cdo",
     "xgeo.core",
     "xgeo.viz",
 ]

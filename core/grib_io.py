@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Literal
@@ -10,11 +11,23 @@ import numpy as np
 import xarray as xr
 
 
+def get_level_types() -> tuple[str, ...]:
+    """Return GRIB2 level types defined by the installed ecCodes library."""
+    for root in eccodes.codes_definition_path().split(os.pathsep):
+        path = Path(root) / "grib2" / "typeOfLevelConcept.def"
+        if path.is_file():
+            names = re.findall(r"(?m)^\s*'([^']+)'\s*=", path.read_text())
+            return tuple(dict.fromkeys(names))
+
+    raise FileNotFoundError("ecCodes GRIB2 level definitions not found")
+
+
 def get_grib_codes(
     parameter: str | int,
     centre: Literal[
         "NCEP", "ECMWF", "UKMO", "MeteoFrance", "JMA", "CMC", "DWD", "CMA"
     ] = "NCEP",
+    type_of_level: str | None = None,
 ) -> dict:
     """Return the GRIB2 codes of a parameter given its paramId, shortName or name.
 
@@ -37,6 +50,9 @@ def get_grib_codes(
         - ``"CMA"``: China Meteorological Administration, Beijing (38)
 
         Defaults to ``"NCEP"``.
+    type_of_level : str, optional
+        The type of level for the parameter (e.g. ``"isobaricInhPa"``).
+        Defaults to ``None``.
 
     Returns
     -------
@@ -80,6 +96,14 @@ def get_grib_codes(
             raise ValueError(
                 f"Unknown GRIB parameter {parameter!r} for centre {centre}"
             )
+        if type_of_level is not None:
+            levels = get_level_types()
+            if type_of_level not in levels:
+                raise ValueError(
+                    f"Unknown type of level {type_of_level!r}; choose one of {', '.join(levels)}"
+                )
+
+            eccodes.codes_set(gid, "typeOfLevel", type_of_level)
         return {
             key: eccodes.codes_get(gid, key)
             for key in (
@@ -90,6 +114,8 @@ def get_grib_codes(
                 "shortName",
                 "name",
                 "units",
+                "typeOfLevel",
+                "levtype",
             )
         }
     finally:

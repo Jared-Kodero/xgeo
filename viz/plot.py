@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import xarray as xr
-from dask.callbacks import Callback
+from dask.diagnostics import ProgressBar
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
@@ -35,7 +35,6 @@ from matplotlib.contour import QuadContourSet
 from matplotlib.image import AxesImage
 
 from ..core.climtools import exclude_key, nproc, tmp
-from ..core.progress import DaskProgressBar, SerialProgressBar
 from . import primitives
 from .options import (
     ColorbarStyle,
@@ -2252,16 +2251,15 @@ class Animate:
             )
             for frame_number, index in enumerate(self.indices)
         ]
-        if self.parallel and len(tasks) > 1:
-            workers = max(1, min(len(tasks), max(1, nproc // 2)))
-            delayed = [dask.delayed(plot_animation_frame)(*task) for task in tasks]
-
-            Callback.active.clear()
-            with DaskProgressBar():
-                dask.compute(*delayed, scheduler="processes", num_workers=workers)
-        else:
-            for task in SerialProgressBar(tasks, total=len(tasks)):
-                plot_animation_frame(*task)
+        parallel = self.parallel and len(tasks) > 1
+        workers = max(1, min(len(tasks), max(1, nproc // 2)))
+        delayed = [dask.delayed(plot_animation_frame)(*task) for task in tasks]
+        with ProgressBar():
+            dask.compute(
+                *delayed,
+                scheduler="processes" if parallel else "synchronous",
+                num_workers=workers,
+            )
         self.to_ffmpeg(
             str(session_tmp_dir / "%06d.png"),
             self.outfile,

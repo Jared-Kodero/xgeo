@@ -16,8 +16,7 @@ The top level exposes the geospatial and plotting API:
   and cmocean.
 
 and the shared utilities: ``LockedLogger``, ``LockFile``, ``RedirectStreams``,
-``locked_print``, ``exclude_key``, ``nproc``, ``SerialProgressBar``,
-``DaskProgressBar`` and ``operator``. The CDO wrapper is the
+``locked_print``, ``exclude_key``, ``nproc``, and ``operator``. The CDO wrapper is the
 module :mod:`xgeo.cdo` (``xgeo.core.pycdo``).
 
 Serial NetCDF output uses xarray's native ``to_netcdf`` method. Distributed
@@ -33,8 +32,7 @@ Two access patterns are supported and are equivalent::
     da.xgeo.plot.geoplot(method="contourf")
 
 Importing the package registers the ``.xgeo`` accessor on
-``xarray.DataArray`` and ``xarray.Dataset``, replaces the dask progress bar
-with the styled one from :mod:`xgeo.core.progress`, and, inside a Jupyter
+``xarray.DataArray`` and ``xarray.Dataset`` and, inside a Jupyter
 kernel, applies the widget CSS fix and switches inline figures to retina
 resolution.
 
@@ -51,12 +49,10 @@ import warnings
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
-import dask.diagnostics
 import xarray  # noqa: F401  must load before core.climtools (circular import)
 
 from .core.accessors import fix_xarray
 from .core.climtools import apply_widget_css
-from .core.progress import DaskProgressBar
 from .core.xnpy import to_xnpy
 
 if TYPE_CHECKING:
@@ -72,7 +68,6 @@ if TYPE_CHECKING:
         nproc,
     )
     from .core.grib_io import get_grib_codes, open_grib, save_grib
-    from .core.progress import SerialProgressBar
     from .core.xnpy import (
         open_xnpy_dataframe,
         open_xnpy_dataset,
@@ -96,11 +91,9 @@ warnings.filterwarnings("always", module=r"xgeo\..*")
 
 #: Public geospatial, plotting, preprocessing, and storage names.
 __all__ = [
-    "DaskProgressBar",
     "LockFile",
     "LockedLogger",
     "RedirectStreams",
-    "SerialProgressBar",
     "SetupDask",
     "SharedMemoryObject",
     "add_local_solar_time",
@@ -130,11 +123,9 @@ __all__ = [
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str | None]] = {
-    "DaskProgressBar": (".core.progress", "DaskProgressBar"),
     "LockFile": (".core.climtools", "LockFile"),
     "LockedLogger": (".core.climtools", "LockedLogger"),
     "RedirectStreams": (".core.climtools", "RedirectStreams"),
-    "SerialProgressBar": (".core.progress", "SerialProgressBar"),
     "SetupDask": (".core.xr_utils", "SetupDask"),
     "SharedMemoryObject": (".core.climtools", "SharedMemoryObject"),
     "add_local_solar_time": (".core.xr_utils", "add_local_solar_time"),
@@ -187,4 +178,3 @@ except Exception:
     ...
 
 apply_widget_css()
-dask.diagnostics.ProgressBar = DaskProgressBar

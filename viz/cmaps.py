@@ -22,6 +22,8 @@ Colormap names are drawn from three backends, in this precedence:
     1. Local IPCC style colormaps stored as plain text RGB tables.
     2. Built in matplotlib colormaps.
     3. cmocean colormaps.
+
+
 """
 
 from __future__ import annotations
@@ -523,7 +525,7 @@ def available(show: bool = True) -> list[str] | DisplayHandle:
     """List or show available colormaps"""
     if "ipykernel" in sys.modules and show:
         for source_name in _registry().values():
-            display(get_cmap(source_name))
+            display(load_cmap(source_name))
 
         return
 

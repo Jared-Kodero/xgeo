@@ -959,18 +959,43 @@ class GeoDataset(GeoBase):
         return PreprocessAccessor(self._obj)
 
 
-def fix_xarray(*, force: bool = False) -> tuple[Path, ...]:
+def fix_xarray(
+    *, force: bool = False, extra: dict[str, tuple[str, ...]] | None = None
+) -> tuple[Path, ...]:
     """Patch xarray source so IDEs resolve registered accessors for completion.
+
+    Inserts ``TYPE_CHECKING`` imports and typed ``@property`` stubs into the
+    installed ``xarray.DataArray`` and ``xarray.Dataset`` sources for the local
+    ``xgeo`` accessor and for each installed optional integration. Also appends
+    a runtime import of the local accessors to ``xarray/__init__.py``. Original
+    sources are saved once as ``<file>.xgeo.bak``, and a ``.xgeo`` marker file
+    in the xarray package directory makes later calls return immediately.
 
     Parameters
     ----------
     force : bool
-        Whether to rebuild an existing source patch.
+        Restore the backed-up sources and rebuild the patch even if the marker
+        exists. Required for changes to ``extra`` or to the installed
+        integrations to take effect.
+    extra : dict[str, tuple[str, ...]] | None
+        Additional integrations to type, merged with the built-in ones
+        (``metpy.xarray``, ``cf_xarray``, ``pint_xarray``, ``rioxarray``).
+        Each key is an importable module name and each value is the tuple of
+        accessor attribute names that the module registers on ``DataArray``
+        and/or ``Dataset``, for example ``{"xclim": ("xclim",)}``. Modules that
+        are not installed are skipped.
 
     Returns
     -------
     tuple[Path, ...]
         Paths modified by the xarray source patch.
+
+    Raises
+    ------
+    RuntimeError
+        If xarray cannot be located, the function is not called from within a
+        package, an integration does not register a listed accessor, or an
+        accessor is not a top-level class.
 
     """
 
@@ -1036,6 +1061,10 @@ def fix_xarray(*, force: bool = False) -> tuple[Path, ...]:
         ("cf_xarray", ("cf",)),
         ("pint_xarray", ("pint",)),
         ("rioxarray", ("rio",)),
+        *(
+            (module, (names,) if isinstance(names, str) else tuple(names))
+            for module, names in (extra or {}).items()
+        ),
     )
 
     integration_names = tuple(module.partition(".")[0] for module, _ in optional)

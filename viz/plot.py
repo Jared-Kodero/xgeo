@@ -710,6 +710,8 @@ class GeoPlot:
         Use percentile-based limits where supported.
     symmetrical : bool, default False
         Use symmetrical color limits around zero where supported.
+    zero_white : bool, default False
+        Centre a band on zero and colour it white on divergent scales.
     rasterized : bool, default False
         Rasterize dense scalar primitives.
     title : str | Dict, default None
@@ -812,6 +814,7 @@ class GeoPlot:
         extend: Literal["neither", "both", "min", "max"] | None = None,
         robust: bool = False,
         symmetrical: bool = False,
+        zero_white: bool = False,
         rasterized: bool = False,
         title: str | dict | None = None,
         colorbar: bool = True,
@@ -885,6 +888,7 @@ class GeoPlot:
             extend=extend,
             norm=norm,
             symmetrical=symmetrical,
+            zero_white=zero_white,
             discrete=drawedges and method != "contourf",
         )
         self.vmin = cmap_params.vmin
@@ -893,6 +897,7 @@ class GeoPlot:
         self.cmap = cmap_params.cmap
         self.norm = cmap_params.norm
         self.extend = cmap_params.extend
+        self.zero_white = zero_white
 
         # An explicit norm owns the color limits.
         if self.norm is not None:
@@ -1057,6 +1062,7 @@ class GeoPlot:
                 ticks=style.ticks,
                 tick_labels=style.tick_labels,
                 minimal_ticks=style.minimal_ticks,
+                zero_white=self.zero_white,
                 scalar_formatter=style.scalar_formatter,
                 powerlimits=style.powerlimits,
                 **style.advanced_arguments(),
@@ -1871,6 +1877,7 @@ class Adder:
             ticks=ticks,
             tick_labels=tick_labels,
             minimal_ticks=minimal_ticks,
+            zero_white=self._plot.zero_white,
             scalar_formatter=scalar_formatter,
             powerlimits=self._plot.powerlimits if powerlimits is None else powerlimits,
             **self._plot.colorbar_style.advanced_arguments(),
@@ -1984,6 +1991,8 @@ class Animate:
         Base scalar rendering options.
     symmetrical : bool, default False
         Use symmetrical color limits around zero where supported.
+    zero_white : bool, default False
+        Centre a band on zero and colour it white on divergent scales.
     title : str, optional
         Frame-title prefix.
     colorbar : bool, default True
@@ -2084,6 +2093,7 @@ class Animate:
         extend: Literal["neither", "both", "min", "max"] | None = None,
         robust: bool = False,
         symmetrical: bool = False,
+        zero_white: bool = False,
         rasterized: bool = False,
         title: str | None = None,
         colorbar: bool = True,
@@ -2349,6 +2359,7 @@ def geoplot(
     extend: Literal["neither", "both", "min", "max"] | None = None,
     robust: bool = False,
     symmetrical: bool = False,
+    zero_white: bool = False,
     rasterized: bool = False,
     title: str | dict | None = None,
     colorbar: bool = True,
@@ -2393,6 +2404,8 @@ def geoplot(
         Base scalar rendering options.
     symmetrical : bool, default False
         Use symmetrical color limits around zero where supported.
+    zero_white : bool, default False
+        Centre a band on zero and colour it white on divergent scales.
     title : str | Dict, default None
         Plot title. if dict provide options accepted by plt.title or figure.suptitle
     colorbar : bool, default True
@@ -2481,6 +2494,7 @@ def animate(
     extend: Literal["neither", "both", "min", "max"] | None = None,
     robust: bool = False,
     symmetrical: bool = False,
+    zero_white: bool = False,
     rasterized: bool = False,
     title: str | None = None,
     colorbar: bool = True,
@@ -2525,6 +2539,8 @@ def animate(
         Per-frame scalar rendering options.
     symmetrical : bool, default False
         Use symmetrical color limits around zero where supported.
+    zero_white : bool, default False
+        Centre a band on zero and colour it white on divergent scales.
     title : str, optional
         Frame-title prefix.
     colorbar : bool, default True

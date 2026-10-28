@@ -374,6 +374,7 @@ class GeoDataArray(GeoBase):
         extend: str | None = None,
         robust: bool = False,
         symmetrical: bool = False,
+        zero_white: bool = False,
         rasterized: bool = False,
         title: str | dict[str, Any] | None = None,
         colorbar: bool = True,
@@ -424,6 +425,8 @@ class GeoDataArray(GeoBase):
             Enable percentile scaling or rasterized artists.
         symmetrical : bool, default False
             Use symmetrical color limits around zero where supported.
+        zero_white : bool, default False
+            Centre a band on zero and colour it white on divergent scales.
         title : str or dict, optional
             Plot title specification.
         colorbar : bool, default True
@@ -513,6 +516,7 @@ class GeoDataArray(GeoBase):
         extend: str | None = None,
         robust: bool = False,
         symmetrical: bool = False,
+        zero_white: bool = False,
         rasterized: bool = False,
         title: str | None = None,
         colorbar: bool = True,
@@ -569,6 +573,8 @@ class GeoDataArray(GeoBase):
             Enable percentile scaling or rasterized artists.
         symmetrical : bool, default False
             Use symmetrical color limits around zero where supported.
+        zero_white : bool, default False
+            Centre a band on zero and colour it white on divergent scales.
         title : str, optional
             Base frame title.
         colorbar : bool, default True

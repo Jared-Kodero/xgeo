@@ -27,7 +27,13 @@ from IPython.display import clear_output
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colorbar import Colorbar
-from matplotlib.colors import BoundaryNorm, Colormap, LightSource, Normalize
+from matplotlib.colors import (
+    BoundaryNorm,
+    Colormap,
+    LightSource,
+    ListedColormap,
+    Normalize,
+)
 from matplotlib.figure import Figure
 from matplotlib.quiver import QuiverKey
 from matplotlib.ticker import FixedLocator, MaxNLocator, ScalarFormatter
@@ -69,6 +75,7 @@ __all__ = [
     "add_contour_labels",
     "add_map_features",
     "add_xy_ticks",
+    "center_zero_white",
     "colorbar",
     "compute_hillshade",
     "get_cax",
@@ -287,6 +294,22 @@ def compute_hillshade(
     return da.copy(data=shaded).where(np.isfinite(da))
 
 
+def center_zero_white(
+    levels: np.ndarray | None, cmap: Colormap
+) -> tuple[np.ndarray | None, Colormap]:
+    """Centre one band on zero and colour it white.
+
+    Dropping the zero boundary of symmetric levels leaves an odd number of
+    bands, so the central band spans ``-step`` to ``step`` and takes the
+    colormap midpoint, which is set to white.
+    """
+    if levels is not None:
+        levels = levels[~np.isclose(levels, 0)]
+    colors = cmap(np.arange(cmap.N))
+    colors[cmap.N // 2] = 1.0
+    return levels, ListedColormap(colors, name=cmap.name)
+
+
 class CmapParams(NamedTuple):
     vmin: float | None
     vmax: float | None
@@ -306,6 +329,7 @@ def resolve_cmap_params(
     extend: str | None = None,
     norm: Normalize | None = None,
     symmetrical: bool = False,
+    zero_white: bool = False,
     discrete: bool = False,
 ) -> CmapParams:
     """Normalize plotting limits and level boundaries.
@@ -337,6 +361,9 @@ def resolve_cmap_params(
     sequential_center : float, default 0
         The center value around which to symmetrize the colormap when `symmetrical` is True. ie
         for sequential lets say val is 50. 50 tick must be shown and centered on the colormap.
+    zero_white : bool, default False
+        If True and the scale is divergent, centre one band on zero and colour
+        it white (see :func:`center_zero_white`).
     discrete : bool, default False
         If True, resamples the colormap to match the number of levels and
         returns a configured `BoundaryNorm`.
@@ -468,6 +495,9 @@ def resolve_cmap_params(
 
     # 7. Fallback colormap selection
     cmap = cmap or plt.get_cmap("RdBu_r" if divergent else "viridis")
+
+    if zero_white and divergent:
+        resolved_levels, cmap = center_zero_white(resolved_levels, cmap)
 
     # 8. Handle discrete resampling and BoundaryNorm when requested
     if discrete and resolved_levels is not None:
@@ -1772,6 +1802,7 @@ def colorbar(
     pad_with_labels: float | None = None,
     facet_length: float = 0.5,
     minimal_ticks_threshold: int = 6,
+    zero_white: bool = False,
     **kwargs,
 ) -> Colorbar:
     """Add a colorbar for a scalar mappable or xarray facet grid.
@@ -1834,6 +1865,9 @@ def colorbar(
     minimal_ticks_threshold : int, default 6
         Number of colour boundaries above which *minimal_ticks* thins the
         labels.
+    zero_white : bool, default False
+        Thin the ticks outward from zero so they stay symmetric when the zero
+        boundary was removed by :func:`center_zero_white`.
     **kwargs
         Additional keyword arguments passed directly to ``Figure.colorbar``.
 
@@ -1909,10 +1943,12 @@ def colorbar(
             boundaries = np.asarray(boundaries, dtype=float)
 
             if boundaries.size > minimal_ticks_threshold:
-                colorbar.locator = FixedLocator(
-                    boundaries,
-                    nbins=max(boundaries.size - 1, 1),
-                )
+                nbins = max(boundaries.size - 1, 1)
+                if zero_white and boundaries.min() < 0 < boundaries.max():
+                    boundaries = np.union1d(boundaries, 0.0)
+                    boundaries = boundaries[np.abs(boundaries).argmin() % 2 :: 2]
+                    nbins = None
+                colorbar.locator = FixedLocator(boundaries, nbins=nbins)
                 colorbar.update_ticks()
 
     if tick_labels is not None:

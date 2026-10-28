@@ -1,13 +1,11 @@
 import json
 import shutil
-from collections.abc import Hashable
 from pathlib import Path
 from typing import Any, Literal
 
 import dask
 import numpy as np
 import pandas as pd
-
 import xarray as xr
 
 # Keys the reader interprets as type tags; dicts containing them stay tagged.
@@ -44,22 +42,21 @@ def open_xnpy_ndarray(
 
 def open_xnpy_dataframe(
     path: str | Path,
-    variable: Hashable | None = None,
+    variables: list[str] | tuple[str] | str | None = None,
     *,
     mmap_mode: Literal["r", "r+", "c"] | None = "r",
 ) -> pd.DataFrame | pd.Series:
     """Open a DataFrame or Series store, optionally restricted to one column.
 
-    For a DataFrame store, only the payloads of the column labelled ``variable``
+    If ``variables`` is specified, only the payloads of the column labelled ``variables``
     are opened and the result is a one-column DataFrame carrying the stored
-    index. ``variable`` is ignored for a Series store.
+    index. ``variables`` is ignored for a Series store.
 
     Parameters
     ----------
     path : str or pathlib.Path
         XNpy store directory.
-    variable : hashable, optional
-        Column label to load for a DataFrame store.
+    variables : list[str], tuple[str], str, or None, optional
     mmap_mode : {"r", "r+", "c"} or None, default="r"
         Memory-map mode passed to :func:`numpy.load`.
 
@@ -73,7 +70,7 @@ def open_xnpy_dataframe(
     TypeError
         If the store holds neither a DataFrame nor a Series.
     """
-    obj = open_xnpy(path, variable, mmap_mode=mmap_mode)
+    obj = open_xnpy(path, variables=variables, mmap_mode=mmap_mode)
     if not isinstance(obj, pd.DataFrame | pd.Series):
         raise TypeError(f"Store {path} does not hold a DataFrame or Series.")
     return obj
@@ -82,6 +79,7 @@ def open_xnpy_dataframe(
 def open_xnpy_dataset(
     path: str | Path,
     *,
+    variables: list[str] | tuple[str] | str | None = None,
     mmap_mode: Literal["r", "r+", "c"] | None = "r",
 ) -> xr.Dataset:
     """Open a Dataset store.
@@ -103,7 +101,7 @@ def open_xnpy_dataset(
     TypeError
         If the store does not hold a Dataset.
     """
-    obj = open_xnpy(path, mmap_mode=mmap_mode)
+    obj = open_xnpy(path, variables=variables, mmap_mode=mmap_mode)
     if not isinstance(obj, xr.Dataset):
         raise TypeError(f"Store {path} does not hold a Dataset.")
     return obj
@@ -111,7 +109,7 @@ def open_xnpy_dataset(
 
 def open_xnpy(
     path: str | Path,
-    variable: Hashable | None = None,
+    variables: list[str] | tuple[str] | str | None = None,
     *,
     mmap_mode: Literal["r", "r+", "c"] | None = "r",
 ) -> np.ndarray | pd.Series | pd.DataFrame | xr.DataArray | xr.Dataset:
@@ -124,8 +122,8 @@ def open_xnpy(
     ----------
     path : str or pathlib.Path
         XNpy store directory.
-    variable : hashable, optional
-        Dataset variable or DataFrame column label to return. Ignored for
+    variables : list[str], tuple[str], str, or None, optional
+        Dataset variables or DataFrame column label to return. Ignored for
         ndarray, Series, and DataArray stores. For a DataFrame, only the
         selected column payloads are opened and a one-column DataFrame is
         returned. If omitted, returns the complete stored object.
@@ -140,13 +138,13 @@ def open_xnpy(
     Returns
     -------
     numpy.ndarray, pandas.Series, pandas.DataFrame, xarray.DataArray, or xarray.Dataset
-        Reconstructed object. A Dataset store with ``variable`` specified returns a
+        Reconstructed object. A Dataset store with ``variables`` specified returns a
         DataArray. Array payloads are memory-mapped unless ``mmap_mode=None``.
 
     Raises
     ------
     KeyError
-        If the specified ``variable`` cannot be found in the store.
+        If the specified ``variables`` cannot be found in the store.
     ValueError
         If an unknown store kind or metadata type is encountered.
     """
@@ -160,8 +158,8 @@ def open_xnpy(
     def load(file: str) -> np.ndarray:
         return np.load(root / file, mmap_mode=mmap_mode, allow_pickle=False)
 
-    def load_variable(info: dict[str, Any]) -> xr.Variable:
-        return xr.Variable(info["dims"], load(info["file"]), attrs=info["attrs"])
+    def load_variables(info: dict[str, Any]) -> xr.variables:
+        return xr.variables(info["dims"], load(info["file"]), attrs=info["attrs"])
 
     def load_column(spec: dict[str, Any]) -> Any:
         """Decode a pandas column from array, masked-array, or categorical storage."""
@@ -221,10 +219,12 @@ def open_xnpy(
         return series
     elif kind == "dataframe":
         columns = [(c["label"], c["column"]) for c in metadata["columns"]]
-        if variable is not None:
-            columns = [column for column in columns if column[0] == variable]
+        if isinstance(variables, str):
+            variables = [variables]
+        if variables is not None:
+            columns = [column for column in columns if column[0] in variables]
             if not columns:
-                raise KeyError(variable)
+                raise KeyError(variables)
 
         names = metadata["columns_names"]
         labels = [label for label, _ in columns]
@@ -242,21 +242,24 @@ def open_xnpy(
         return frame
     elif kind in {"dataarray", "dataset"}:
         coords = {
-            name: load_variable(info) for name, info in metadata["coords"].items()
+            name: load_variables(info) for name, info in metadata["coords"].items()
         }
         if kind == "dataarray":
             return xr.DataArray(
-                load_variable(metadata["variable"]),
+                load_variables(metadata["variables"]),
                 coords=coords,
                 name=metadata["name"],
             )
 
         dataset = xr.Dataset(
-            {name: load_variable(info) for name, info in metadata["variables"].items()},
+            {
+                name: load_variables(info)
+                for name, info in metadata["variabless"].items()
+            },
             coords=coords,
             attrs=metadata["attrs"],
         )
-        return dataset if variable is None else dataset[variable]
+        return dataset if variables is None else dataset[variables]
     else:
         raise ValueError(f"Unknown XNpy kind: {kind!r}.")
 
@@ -272,10 +275,10 @@ def to_xnpy(
     """Write a NumPy, pandas, or xarray object to a memory-mappable XNpy store.
 
     In-memory arrays are written with :func:`numpy.save`. Large lazily indexed
-    arrays are streamed in bounded, chunk-aligned slabs. All array writes (variables,
+    arrays are streamed in bounded, chunk-aligned slabs. All array writes (variabless,
     coordinates, columns, masks) are built as :func:`dask.delayed` tasks and
-    Dask-backed variables as :func:`dask.array.store` tasks. They execute in a
-    single :func:`dask.compute` call, so columns, variables, and chunks run
+    Dask-backed variabless as :func:`dask.array.store` tasks. They execute in a
+    single :func:`dask.compute` call, so columns, variabless, and chunks run
     concurrently under the selected scheduler.
 
     Metadata (``attrs``, labels, names) is encoded with type tags so that tuples,
@@ -345,7 +348,7 @@ def to_xnpy(
         jobs.append((source, file))
         return file
 
-    def add_variable(source: xr.DataArray, folder: str, name: Any) -> dict[str, Any]:
+    def add_variables(source: xr.DataArray, folder: str, name: Any) -> dict[str, Any]:
         return {
             "dims": list(source.dims),
             "attrs": dict(source.attrs),
@@ -456,12 +459,12 @@ def to_xnpy(
         metadata: dict[str, Any] = {
             "kind": "dataset",
             "attrs": dict(obj.attrs),
-            "variables": {
-                name: add_variable(var, "data", name)
+            "variabless": {
+                name: add_variables(var, "data", name)
                 for name, var in obj.data_vars.items()
             },
             "coords": {
-                name: add_variable(coord, "coords", name)
+                name: add_variables(coord, "coords", name)
                 for name, coord in obj.coords.items()
             },
         }
@@ -469,13 +472,13 @@ def to_xnpy(
         metadata = {
             "kind": "dataarray",
             "name": obj.name,
-            "variable": add_variable(
+            "variables": add_variables(
                 obj,
                 "data",
                 "array" if obj.name is None else obj.name,
             ),
             "coords": {
-                name: add_variable(coord, "coords", name)
+                name: add_variables(coord, "coords", name)
                 for name, coord in obj.coords.items()
             },
         }
@@ -508,7 +511,7 @@ def to_xnpy(
     def write_array(source: Any, path: Path) -> None:
         np.save(path, np.asarray(source), allow_pickle=False)
 
-    def write_slab(source: xr.Variable, path: Path, offset: int) -> None:
+    def write_slab(source: xr.variables, path: Path, offset: int) -> None:
         slab = np.ascontiguousarray(source)
         with path.open("r+b") as file:
             file.seek(offset)
@@ -550,7 +553,7 @@ def to_xnpy(
         step = max(slab_bytes // strides[axis] // chunk, 1) * chunk
         return [
             dask.delayed(write_slab, pure=False)(
-                source.variable[(*lead, slice(start, start + step))],
+                source.variables[(*lead, slice(start, start + step))],
                 path,
                 offset
                 + sum(i * size for i, size in zip(lead, strides, strict=False))

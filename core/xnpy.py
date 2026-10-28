@@ -158,8 +158,8 @@ def open_xnpy(
     def load(file: str) -> np.ndarray:
         return np.load(root / file, mmap_mode=mmap_mode, allow_pickle=False)
 
-    def load_variables(info: dict[str, Any]) -> xr.variables:
-        return xr.variables(info["dims"], load(info["file"]), attrs=info["attrs"])
+    def load_variables(info: dict[str, Any]) -> xr.Variable:
+        return xr.Variable(info["dims"], load(info["file"]), attrs=info["attrs"])
 
     def load_column(spec: dict[str, Any]) -> Any:
         """Decode a pandas column from array, masked-array, or categorical storage."""
@@ -511,7 +511,7 @@ def to_xnpy(
     def write_array(source: Any, path: Path) -> None:
         np.save(path, np.asarray(source), allow_pickle=False)
 
-    def write_slab(source: xr.variables, path: Path, offset: int) -> None:
+    def write_slab(source: xr.Variable, path: Path, offset: int) -> None:
         slab = np.ascontiguousarray(source)
         with path.open("r+b") as file:
             file.seek(offset)

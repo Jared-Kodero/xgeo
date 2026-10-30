@@ -1,5 +1,7 @@
 import json
+import os
 import shutil
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -88,6 +90,8 @@ def open_xnpy_dataset(
     ----------
     path : str or pathlib.Path
         XNpy store directory.
+    variables : list[str], tuple[str], str, or None, optional
+        Data variables to open. A single name returns a DataArray.
     mmap_mode : {"r", "r+", "c"} or None, default="r"
         Memory-map mode passed to :func:`numpy.load`.
 
@@ -178,24 +182,27 @@ def open_xnpy(
 
         if encoding == "masked":
             dtype = pd.api.types.pandas_dtype(spec["dtype"])
-            mask = np.asarray(load(spec["mask"]), dtype=bool)
-
-            if dtype == object:
-                out = np.asarray(values).astype(object)
-                out[mask] = np.nan
-                return pd.Index(out, dtype=object, copy=False)
 
             if isinstance(dtype, pd.DatetimeTZDtype):
-                out = pd.to_datetime(
-                    np.asarray(values), unit="ns", utc=True
-                ).tz_convert(dtype.tz)
-                out = pd.array(out, dtype=dtype)
-                out[mask] = pd.NaT
-                return out
+                return (
+                    pd.DatetimeIndex(values.view(f"M8[{dtype.unit}]"))
+                    .tz_localize("UTC")
+                    .tz_convert(dtype.tz)
+                    .array
+                )
 
-            out = np.asarray(values).astype(object)
-            out[mask] = dtype.na_value
-            return pd.array(out, dtype=dtype)
+            mask = np.asarray(load(spec["mask"]), dtype=bool)
+
+            if dtype == object or isinstance(dtype, pd.StringDtype):
+                out = np.asarray(values).astype(object)
+                out[mask] = np.nan if dtype == object else dtype.na_value
+                return (
+                    pd.Index(out, dtype=object, copy=False)
+                    if dtype == object
+                    else pd.array(out, dtype=dtype)
+                )
+
+            return dtype.construct_array_type()(values, mask)
 
         raise ValueError(f"Unknown pandas encoding: {encoding!r}.")
 
@@ -251,15 +258,14 @@ def open_xnpy(
                 name=metadata["name"],
             )
 
+        infos = metadata["variables"]
+        names = [variables] if isinstance(variables, str) else variables
         dataset = xr.Dataset(
-            {
-                name: load_variables(info)
-                for name, info in metadata["variabless"].items()
-            },
+            {name: load_variables(infos[name]) for name in names or infos},
             coords=coords,
             attrs=metadata["attrs"],
         )
-        return dataset if variables is None else dataset[variables]
+        return dataset[variables] if isinstance(variables, str) else dataset
     else:
         raise ValueError(f"Unknown XNpy kind: {kind!r}.")
 
@@ -275,11 +281,14 @@ def to_xnpy(
     """Write a NumPy, pandas, or xarray object to a memory-mappable XNpy store.
 
     In-memory arrays are written with :func:`numpy.save`. Large lazily indexed
-    arrays are streamed in bounded, chunk-aligned slabs. All array writes (variabless,
+    arrays are streamed in bounded, chunk-aligned slabs. All array writes (variables,
     coordinates, columns, masks) are built as :func:`dask.delayed` tasks and
-    Dask-backed variabless as :func:`dask.array.store` tasks. They execute in a
-    single :func:`dask.compute` call, so columns, variabless, and chunks run
+    Dask-backed variables as :func:`dask.array.store` tasks. They execute in a
+    single :func:`dask.compute` call, so columns, variables, and chunks run
     concurrently under the selected scheduler.
+
+    The store is written to a hidden sibling directory ``.<name>.tmp`` and moved
+    into place on success, so a failed write never destroys an existing store.
 
     Metadata (``attrs``, labels, names) is encoded with type tags so that tuples,
     dicts with non-string keys, and nested pandas or xarray objects (stored as
@@ -334,11 +343,11 @@ def to_xnpy(
     if scheduler not in {"threads", "synchronous"}:
         raise ValueError(f"Unsupported XNpy scheduler: {scheduler!r}.")
 
-    root = Path(path)
-    if root.exists():
-        if mode == "w-":
-            raise FileExistsError(root)
-        shutil.rmtree(root)
+    final = Path(path)
+    if final.exists() and mode == "w-":
+        raise FileExistsError(final)
+    root = final.with_name(f".{final.name}.tmp")
+    shutil.rmtree(root, ignore_errors=True)
 
     jobs: list[tuple[Any, str]] = []
     nested: list[Any] = []
@@ -348,7 +357,7 @@ def to_xnpy(
         jobs.append((source, file))
         return file
 
-    def add_variables(source: xr.DataArray, folder: str, name: Any) -> dict[str, Any]:
+    def add_variables(source: xr.Variable, folder: str, name: Any) -> dict[str, Any]:
         return {
             "dims": list(source.dims),
             "attrs": dict(source.attrs),
@@ -360,13 +369,14 @@ def to_xnpy(
         series = pd.Series(values)
         dtype = series.dtype
         dtype_name = str(dtype)
+        mask = series.isna().to_numpy()
 
         def masked(data: np.ndarray) -> dict[str, Any]:
             return {
                 "encoding": "masked",
                 "dtype": dtype_name,
                 "file": add(data, folder, name),
-                "mask": add(series.isna().to_numpy(), folder, f"{name}.mask"),
+                "mask": add(mask, folder, f"{name}.mask"),
             }
 
         if isinstance(dtype, pd.CategoricalDtype):
@@ -382,7 +392,7 @@ def to_xnpy(
             return masked(series.fillna(False).to_numpy(dtype=bool))
 
         if isinstance(dtype, pd.StringDtype):
-            return masked(series.fillna("").to_numpy(dtype=str))
+            return masked(series.to_numpy(dtype=str, na_value=""))
 
         if isinstance(series.array, pd.arrays.IntegerArray | pd.arrays.FloatingArray):
             numpy_dtype = dtype.numpy_dtype
@@ -396,7 +406,6 @@ def to_xnpy(
             return masked(series.array.asi8)
 
         if dtype == object:
-            mask = series.isna().to_numpy()
             valid = series[~mask]
 
             if valid.empty:
@@ -459,13 +468,13 @@ def to_xnpy(
         metadata: dict[str, Any] = {
             "kind": "dataset",
             "attrs": dict(obj.attrs),
-            "variabless": {
-                name: add_variables(var, "data", name)
-                for name, var in obj.data_vars.items()
+            "variables": {
+                name: add_variables(obj.variables[name], "data", name)
+                for name in obj.data_vars
             },
             "coords": {
                 name: add_variables(coord, "coords", name)
-                for name, coord in obj.coords.items()
+                for name, coord in obj.coords.variables.items()
             },
         }
     elif isinstance(obj, xr.DataArray):
@@ -473,13 +482,13 @@ def to_xnpy(
             "kind": "dataarray",
             "name": obj.name,
             "variables": add_variables(
-                obj,
+                obj.variable,
                 "data",
                 "array" if obj.name is None else obj.name,
             ),
             "coords": {
                 name: add_variables(coord, "coords", name)
-                for name, coord in obj.coords.items()
+                for name, coord in obj.coords.variables.items()
             },
         }
     elif isinstance(obj, pd.DataFrame):
@@ -511,35 +520,68 @@ def to_xnpy(
     def write_array(source: Any, path: Path) -> None:
         np.save(path, np.asarray(source), allow_pickle=False)
 
-    def write_slab(source: xr.Variable, path: Path, offset: int) -> None:
-        slab = np.ascontiguousarray(source)
+    def write_slab(
+        source: xr.Variable, path: Path, index: tuple[Any, ...], offset: int
+    ) -> None:
+        slab = np.ascontiguousarray(source[index])
         with path.open("r+b") as file:
             file.seek(offset)
             file.write(slab)
 
-    def flush(target: np.ndarray, *_: Any) -> None:
-        target.flush()
+    def write_block(
+        block: np.ndarray,
+        path: Path,
+        offset: int,
+        region: tuple[slice, ...],
+        shape: tuple[int, ...],
+    ) -> None:
+        sizes = [r.stop - r.start for r in region]
+        lead = next((i for i, n in enumerate(sizes) if n > 1), len(sizes))
+        if not block.size:
+            return
+        if sizes[lead + 1 :] != list(shape[lead + 1 :]):
+            np.lib.format.open_memmap(path, "r+")[region] = block
+            return
+        start = (
+            int(np.ravel_multi_index([r.start for r in region], shape)) if shape else 0
+        )
+        view = memoryview(np.ascontiguousarray(block).reshape(-1).view("u1"))
+        position = offset + start * block.itemsize
+        with path.open("r+b") as file:
+            while view:
+                written = os.pwrite(file.fileno(), view, position)
+                view, position = view[written:], position + written
 
     def make_task(source: Any, path: Path) -> list[Any]:
         if source.dtype == object:
             source = np.asarray(source).astype(str)
 
         if getattr(source, "chunks", None) is not None:
-            import dask.array as da
-
-            target = np.lib.format.open_memmap(
+            offset = np.lib.format.open_memmap(
                 path, "w+", dtype=source.dtype, shape=source.shape
-            )
-            data = source.data if isinstance(source, xr.DataArray) else source
-            stored = da.store(data, target, lock=False, compute=False)
-            return [dask.delayed(flush, pure=False)(target, stored)]
+            ).offset
+            bounds = [np.cumsum((0, *chunks)) for chunks in source.chunks]
+            blocks = source.data.to_delayed()
+            return [
+                dask.delayed(write_block, pure=False)(
+                    blocks[index],
+                    path,
+                    offset,
+                    tuple(
+                        slice(b[i], b[i + 1])
+                        for b, i in zip(bounds, index, strict=True)
+                    ),
+                    source.shape,
+                )
+                for index in np.ndindex(*blocks.shape)
+            ]
 
         if (
             isinstance(source, np.ndarray)
             or source.nbytes <= slab_bytes
             or not source.ndim
         ):
-            return [dask.delayed(write_array, pure=False)(source, path)]
+            return [dask.delayed(partial(write_array, source, path), pure=False)()]
 
         offset = np.lib.format.open_memmap(
             path, "w+", dtype=source.dtype, shape=source.shape
@@ -552,9 +594,8 @@ def to_xnpy(
         chunk = source.encoding.get("preferred_chunks", {}).get(source.dims[axis], 1)
         step = max(slab_bytes // strides[axis] // chunk, 1) * chunk
         return [
-            dask.delayed(write_slab, pure=False)(
-                source.variables[(*lead, slice(start, start + step))],
-                path,
+            dask.delayed(partial(write_slab, source, path), pure=False)(
+                (*lead, slice(start, start + step)),
                 offset
                 + sum(i * size for i, size in zip(lead, strides, strict=False))
                 + start * strides[axis],
@@ -584,6 +625,9 @@ def to_xnpy(
 
         with (root / "metadata.json").open("w") as file:
             json.dump(metadata, file, indent=2)
+
+        shutil.rmtree(final, ignore_errors=True)
+        root.rename(final)
     except Exception:
         shutil.rmtree(root, ignore_errors=True)
         raise

@@ -1,3 +1,25 @@
+"""XNpy: extended NPY, a memory-mappable store for array-like objects.
+
+An XNpy store is a directory holding one ``.npy`` file per array payload and a
+``metadata.json`` manifest that records the object kind, dimensions, labels,
+dtypes, and attributes. Payloads can be opened with :func:`numpy.load` memory
+mapping, so stores larger than memory can be sliced lazily and written in parallel.
+
+Supported objects are :class:`numpy.ndarray`, :class:`pandas.Series`,
+:class:`pandas.DataFrame`, :class:`xarray.DataArray`, and :class:`xarray.Dataset`.
+Nullable, categorical, and object-backed pandas columns are stored as typed arrays
+with masks or integer codes. Metadata is stored as tagged JSON, and nested pandas
+or xarray objects in attributes are stored as sub-stores under ``attrs/``.
+
+Layout::
+
+    store/
+        metadata.json
+        data/       variable and column payloads
+        coords/     coordinate and index payloads
+        attrs/      nested sub-stores
+"""
+
 import json
 import os
 import shutil

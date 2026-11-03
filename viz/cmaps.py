@@ -48,6 +48,18 @@ if TYPE_CHECKING:
 
 type ColorMap = ListedColormap | LinearSegmentedColormap
 
+__all__ = [
+    "ColorMap",
+    "available",
+    "classify_cmap",
+    "concat",
+    "get_cmap",
+    "get_colors",
+    "new",
+    "slice_cmap",
+    "write_stub",
+]
+
 # fmt: off
 _FILE_DIR = Path(__file__).resolve().parent
 _SRC_DIR = _FILE_DIR / "data" / "cmaps"

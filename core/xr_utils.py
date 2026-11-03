@@ -25,6 +25,17 @@ if TYPE_CHECKING:
 
     from dask.distributed import Client
 
+__all__ = [
+    "SetupDask",
+    "add_cyclic_point",
+    "add_local_solar_time",
+    "fillgaps",
+    "mask",
+    "regrid",
+    "sel_transect",
+    "wrap_lon",
+]
+
 xr.set_options(display_expand_attrs=False)
 
 script_dir = Path(__file__).resolve().parent

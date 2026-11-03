@@ -58,7 +58,7 @@ if TYPE_CHECKING:
     from matplotlib.cm import ScalarMappable
     from matplotlib.collections import PathCollection
     from matplotlib.colorbar import Colorbar
-    from matplotlib.colors import Colormap, Normalize
+    from matplotlib.colors import Colormap
     from matplotlib.contour import QuadContourSet
     from matplotlib.figure import Figure
     from matplotlib.lines import Line2D
@@ -878,11 +878,15 @@ class AutoQuiverKey(QuiverKey):
     * any other axes of the figure lying directly beneath the parent axes and
       overlapping it horizontally (for example a horizontal colorbar).
 
+    ``align`` chooses where the key sits along that lower edge: ``"left"``
+    (default), ``"center"`` or ``"right"`` relative to the axes frame.
+
     ``get_window_extent`` returns the arrow and label extent, so
     ``bbox_inches="tight"`` and layout engines include the key.
     """
 
     gap_points = 4.0
+    align = "left"
 
     def _place(self, renderer: Any) -> None:
         """Set ``X`` and ``Y`` (axes coordinates) from the current layout."""
@@ -910,9 +914,16 @@ class AutoQuiverKey(QuiverKey):
         half_height = 0.5 * max(arrow.height, text.height)
         gap = renderer.points_to_pixels(self.gap_points)
         # labelpos "E" pivots the arrow on its tip, so the tip sits at X and the
-        # tail one arrow length to the left, on the axes edge.
+        # tail one arrow length to the left. The key spans the arrow, the label
+        # offset and the label.
+        width = arrow.width + self._text_shift()[0] + text.width
+        left = {
+            "left": ax.bbox.x0,
+            "center": ax.bbox.x0 + 0.5 * (ax.bbox.width - width),
+            "right": ax.bbox.x1 - width,
+        }[self.align]
         self.X, self.Y = ax.transAxes.inverted().transform(
-            (ax.bbox.x0 + arrow.width, bottom - gap - half_height)
+            (left + arrow.width, bottom - gap - half_height)
         )
 
     def _arrow_extent(self, renderer: Any) -> Bbox:
@@ -1053,6 +1064,10 @@ def add_xy_ticks(
     top_labels: bool = False,
     right_labels: bool = False,
     gridlines: bool = False,
+    gridline_color: str | None = None,
+    gridline_linestyle: str | None = None,
+    gridline_linewidth: float | None = None,
+    gridline_alpha: float | None = None,
 ) -> None:
     """Add longitude and latitude ticks to a Cartopy axis.
 
@@ -1083,8 +1098,22 @@ def add_xy_ticks(
         Label the top and right edges as well as the bottom and left edges.
     gridlines : bool, default False
         Draw grid lines through the ticks.
+    gridline_color : str, optional
+        Grid-line color. Matplotlib's grid color when omitted.
+    gridline_linestyle : str, optional
+        Grid-line style. Matplotlib's grid style when omitted.
+    gridline_linewidth : float, optional
+        Grid-line width in points. Matplotlib's grid width when omitted.
+    gridline_alpha : float, optional
+        Grid-line opacity, in [0, 1]. Opaque when omitted.
     """
 
+    line_style = is_defined(
+        color=gridline_color,
+        linestyle=gridline_linestyle,
+        linewidth=gridline_linewidth,
+        alpha=gridline_alpha,
+    )
     lon = grid[x]
     lat = grid[y]
 
@@ -1118,6 +1147,7 @@ def add_xy_ticks(
                 draw_labels=False,
                 xlocs=xticks,
                 ylocs=yticks,
+                **line_style,
             )
         return
 
@@ -1126,6 +1156,7 @@ def add_xy_ticks(
         draw_labels=True,
         xlocs=xticks,
         ylocs=yticks,
+        **line_style,
     )
     gridliner.top_labels = top_labels
     gridliner.right_labels = right_labels
@@ -1157,6 +1188,18 @@ def add_map_features(
     boundary_color: str | None = None,
     boundary_linewidth: float | None = None,
     boundary_zorder: float = 3,
+    states_color: str | None = None,
+    states_linestyle: str | None = None,
+    states_linewidth: float | None = None,
+    states_zorder: float | None = None,
+    borders_color: str | None = None,
+    borders_linestyle: str | None = None,
+    borders_linewidth: float | None = None,
+    borders_zorder: float | None = None,
+    coastline_alpha: float | None = None,
+    coastline_zorder: float | None = None,
+    lakes_linewidth: float | None = None,
+    rivers_linewidth: float | None = None,
     water_color: str | None = None,
     water_zorder: float = 2,
     land_color: str = "#54585f",
@@ -1201,6 +1244,26 @@ def add_map_features(
         Width of the state and country boundaries in points.
     boundary_zorder : float, default 3
         Drawing order of the state and country boundaries.
+    states_color, borders_color : str, optional
+        Color of the state or the country boundaries alone. Overrides
+        ``boundary_color`` for that feature.
+    states_linestyle, borders_linestyle : str, optional
+        Line style of the state or the country boundaries alone. Overrides
+        ``boundary_linestyle`` for that feature.
+    states_linewidth, borders_linewidth : float, optional
+        Width in points of the state or the country boundaries alone. Overrides
+        ``boundary_linewidth`` for that feature.
+    states_zorder, borders_zorder : float, optional
+        Drawing order of the state or the country boundaries alone. Overrides
+        ``boundary_zorder`` for that feature.
+    coastline_alpha : float, optional
+        Coastline opacity, in [0, 1]. Opaque when omitted.
+    coastline_zorder : float, optional
+        Drawing order of the coastlines. Cartopy's default is used when
+        omitted.
+    lakes_linewidth, rivers_linewidth : float, optional
+        Outline width of the lakes and width of the rivers in points.
+        Cartopy's default is used when omitted.
     water_color : str, optional
         Color of lakes and rivers. Cartopy's default is used when omitted.
     water_zorder : float, default 2
@@ -1237,29 +1300,73 @@ def add_map_features(
     def line_style(**options: Any) -> dict[str, Any]:
         return {name: value for name, value in options.items() if value is not None}
 
-    boundary = line_style(
-        linestyle=boundary_linestyle,
-        zorder=boundary_zorder,
-        edgecolor=boundary_color,
-        linewidth=boundary_linewidth,
-    )
+    def boundary(
+        alpha: float,
+        color: str | None,
+        linestyle: str | None,
+        linewidth: float | None,
+        zorder: float | None,
+    ) -> dict[str, Any]:
+        """Shared boundary style, overridden by the values set for one feature."""
+        return line_style(
+            alpha=alpha,
+            edgecolor=boundary_color if color is None else color,
+            linestyle=boundary_linestyle if linestyle is None else linestyle,
+            linewidth=boundary_linewidth if linewidth is None else linewidth,
+            zorder=boundary_zorder if zorder is None else zorder,
+        )
+
     feature_specs: tuple[tuple[bool, cfeature.Feature, dict[str, Any]], ...] = (
         (
             coastlines,
             cfeature.COASTLINE,
-            line_style(edgecolor=coastline_color, linewidth=coastline_linewidth),
+            line_style(
+                edgecolor=coastline_color,
+                linewidth=coastline_linewidth,
+                alpha=coastline_alpha,
+                zorder=coastline_zorder,
+            ),
         ),
-        (states, cfeature.STATES, {**boundary, "alpha": states_alpha}),
-        (borders, cfeature.BORDERS, {**boundary, "alpha": borders_alpha}),
+        (
+            states,
+            cfeature.STATES,
+            boundary(
+                states_alpha,
+                states_color,
+                states_linestyle,
+                states_linewidth,
+                states_zorder,
+            ),
+        ),
+        (
+            borders,
+            cfeature.BORDERS,
+            boundary(
+                borders_alpha,
+                borders_color,
+                borders_linestyle,
+                borders_linewidth,
+                borders_zorder,
+            ),
+        ),
         (
             lakes,
             cfeature.LAKES,
-            line_style(zorder=water_zorder, facecolor=water_color, edgecolor=water_color),
+            line_style(
+                zorder=water_zorder,
+                facecolor=water_color,
+                edgecolor=water_color,
+                linewidth=lakes_linewidth,
+            ),
         ),
         (
             rivers,
             cfeature.RIVERS,
-            line_style(zorder=water_zorder, edgecolor=water_color),
+            line_style(
+                zorder=water_zorder,
+                edgecolor=water_color,
+                linewidth=rivers_linewidth,
+            ),
         ),
     )
     for enabled, feature, options in feature_specs:
@@ -1744,14 +1851,21 @@ def add_grid_boundary(
 
 
 def fmt_anim_title(
-    title: str,
+    title: str | Mapping[str, Any],
     dim: str,
     frame_number: int,
     frame_value: Any,
     total_frames: int,
     frame_id: bool,
 ) -> dict:
-    """Format Animation Title"""
+    """Format an animation title.
+
+    ``title`` is either a string prefix or a mapping holding the prefix under
+    ``"label"`` and keyword arguments for ``set_title`` or ``suptitle``, which
+    override the defaults (``loc="left"``, ``fontfamily="monospace"``).
+    """
+    options = {} if isinstance(title, str) else dict(title)
+    title = title if isinstance(title, str) else options.pop("label", "")
     if np.issubdtype(np.asarray(frame_value).dtype, np.datetime64):
         frame_value = pd.to_datetime(frame_value).strftime("%Y-%m-%d %H:%M")
 
@@ -1775,6 +1889,7 @@ def fmt_anim_title(
         "label": frame_title,
         "loc": "left",
         "fontfamily": "monospace",
+        **options,
     }
 
 
@@ -2187,15 +2302,20 @@ def plot_quiver(
     angles: Literal["uv", "xy"] = "xy",
     key_fontsize: float = 10.0,
     key_gap: float = AutoQuiverKey.gap_points,
+    cmap: str | Colormap | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    key_color: str | None = None,
+    key_align: Literal["left", "center", "right"] = "left",
     **kwargs: Any,
 ) -> tuple[Quiver, QuiverKey | None]:
     """Draw vector arrows and optionally add a quiver key.
 
     The key is an :class:`AutoQuiverKey`: it is placed automatically below the
     tick labels, gridliner labels and axis label of ``ax`` (and below a
-    horizontal colorbar beneath ``ax``), aligned with the left edge of the axes,
-    and repositions itself whenever the figure is drawn. Its position cannot be
-    set by the caller.
+    horizontal colorbar beneath ``ax``), aligned along the lower edge of the axes
+    as chosen by ``key_align``, and repositions itself whenever the figure is
+    drawn. Its vertical position cannot be set by the caller.
 
     Parameters
     ----------
@@ -2236,6 +2356,17 @@ def plot_quiver(
         Font size of the quiver-key label in points.
     key_gap : float, default 4
         Gap in points between the key and the lowest axis decoration above it.
+    cmap : str or matplotlib.colors.Colormap, optional
+        Color the arrows by vector magnitude. Mutually exclusive with ``color``.
+        The returned quiver is then a scalar mappable that a colorbar can
+        describe.
+    vmin, vmax : float, optional
+        Magnitude limits of ``cmap``. Default to 0 and the largest magnitude of
+        the drawn vectors.
+    key_color : str, optional
+        Color of the key arrow and label. Black when omitted.
+    key_align : {"left", "center", "right"}, default "left"
+        Horizontal alignment of the key along the lower edge of the axes.
     **kwargs
         Additional arguments forwarded to :meth:`Axes.quiver`.
 
@@ -2252,6 +2383,10 @@ def plot_quiver(
             f"{', '.join(placement)} is not supported: the quiver key is placed "
             + "automatically below the axis decorations"
         )
+    if cmap is not None and color is not None:
+        raise ValueError("cmap and color are mutually exclusive")
+    if key_align not in ("left", "center", "right"):
+        raise ValueError("key_align must be 'left', 'center' or 'right'")
     u, v = validate_vector_components(u, v)
     assert u is not None and v is not None
 
@@ -2283,14 +2418,17 @@ def plot_quiver(
     options.update(kwargs)
     options = is_geoaxes(ax, options)
 
-    quiver = ax.quiver(
-        x2d,
-        y2d,
-        np.asarray(u_selected.values),
-        np.asarray(v_selected.values),
-        angles=angles,
-        **options,
-    )
+    components = [np.asarray(u_selected.values), np.asarray(v_selected.values)]
+    if cmap is not None:
+        magnitude = np.hypot(*components)
+        options["cmap"] = cmap
+        options["norm"] = Normalize(
+            0.0 if vmin is None else vmin,
+            float(np.nanmax(magnitude)) if vmax is None else vmax,
+        )
+        components.append(magnitude)
+
+    quiver = ax.quiver(x2d, y2d, *components, angles=angles, **options)
 
     quiver_key: QuiverKey | None = None
     if add_key:
@@ -2308,6 +2446,11 @@ def plot_quiver(
         magnitude_label = format_scalar(key_magnitude, powerlimits)
         label = f"{magnitude_label} {key_units or ''}".strip()
 
+        key_style = (
+            {}
+            if key_color is None and cmap is None
+            else {"color": key_color or "k", "labelcolor": key_color or "k"}
+        )
         quiver_key = AutoQuiverKey(
             quiver,
             X=0.0,
@@ -2318,8 +2461,10 @@ def plot_quiver(
             coordinates="axes",
             zorder=zorder,
             fontproperties={"size": key_fontsize},
+            **key_style,
         )
         quiver_key.gap_points = float(key_gap)
+        quiver_key.align = key_align
         ax.add_artist(quiver_key)
         quiver_key.set_clip_on(False)
         quiver_key.text.set_clip_on(False)
@@ -2344,8 +2489,9 @@ def plot_significance(
     subsample: int | tuple[int, int] | list[int] = (1, 1),
     size: float = 0.25,
     zorder: float = 3.0,
-) -> PathCollection:
-    """Draw markers where a p-value field is below a threshold.
+    hatch: str | None = None,
+) -> PathCollection | QuadContourSet:
+    """Draw markers or hatching where a p-value field is below a threshold.
 
     Parameters
     ----------
@@ -2373,11 +2519,16 @@ def plot_significance(
         Marker area.
     zorder : float, default 3
         Drawing order.
+    hatch : str, optional
+        Matplotlib hatch pattern, for example ``"///"``. The significant region
+        is then hatched, in ``edgecolors`` (default ``color``) with opacity
+        ``alpha``, instead of marked. ``marker`` and ``size`` are ignored.
 
     Returns
     -------
-    matplotlib.collections.PathCollection
-        Created significance-marker primitive.
+    matplotlib.collections.PathCollection or matplotlib.contour.QuadContourSet
+        Created significance-marker primitive, or the hatched region when
+        ``hatch`` is set.
     """
 
     data = validate_data(data)
@@ -2390,6 +2541,34 @@ def plot_significance(
             y: slice(None, None, y_stride),
         }
     )
+    if hatch is not None:
+        significant = selected.notnull() if not level else selected < level
+        x_values, y_values = selected.coords[x], selected.coords[y]
+        if x_values.ndim == 2 and y_values.ndim == 2:
+            x2d, y2d = np.asarray(x_values.values), np.asarray(y_values.values)
+            region = significant.values
+        else:
+            x2d, y2d = np.meshgrid(x_values.values, y_values.values)
+            region = significant.transpose(y_values.dims[0], x_values.dims[0]).values
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)  # no significant points
+            hatched = ax.contourf(
+                x2d,
+                y2d,
+                region.astype(float),
+                levels=[0.5, 1.5],
+                colors="none",
+                hatches=[hatch],
+                zorder=zorder,
+                **is_geoaxes(ax, {}),
+            )
+        for artist in (
+            [hatched] if hasattr(hatched, "set_edgecolor") else hatched.collections
+        ):
+            artist.set_edgecolor(edgecolors or color)
+            artist.set_alpha(alpha)
+        return hatched
+
     data.name = "p_value"
     frame = selected.rename("p_value").to_dataframe().reset_index()
     if level:

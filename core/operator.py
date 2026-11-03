@@ -4,8 +4,11 @@ This module re-exports the standard operators from :mod:`operator` and adds
 general mathematical transformations commonly used with scientific data.
 """
 
+import operator as _operator
 from operator import *
 from typing import Any
+
+__all__ = _operator.__all__ + ["affine", "identity", "power", "quadratic", "reciprocal"]
 
 
 def identity(x: Any, *_, **__) -> Any:

@@ -2,7 +2,7 @@
 
 Climate-data analysis, geospatial processing, visualization, and memory-mapped storage built around [Xarray](https://xarray.dev/).
 
-`xgeo` provides the `.xgeo` accessor, Cartopy maps, geospatial transformations, statistical tools, scientific colormaps, preprocessing, and CDO integration. MPI-distributed arrays, the MPI context, and parallel NetCDF output belong to the separate [`xrmpi`](../xrmpi/README.md) package.
+`xgeo` provides the `.xgeo` accessor, Cartopy maps, geospatial transformations, statistical tools, scientific colormaps, and preprocessing. MPI-distributed arrays, the MPI context, and parallel NetCDF output belong to the separate [`xrmpi`](../xrmpi/README.md) package.
 
 ## Installation
 
@@ -23,7 +23,7 @@ python -m pip install --no-deps -e .
 
 The package's own [`env/README.md`](env/README.md) documents creation, updates, optional features, notebook kernels, and installation into another environment. Its specification is [`env/env.yaml`](env/env.yaml).
 
-CDO workflows require `cdo` and `nco` on `PATH`; animations require `ffmpeg`. The Conda specification includes these executables and `xesmf`.
+Animations require `ffmpeg` on `PATH`. The Conda specification includes `ffmpeg` and `xesmf`.
 
 ## Quick start
 
@@ -50,14 +50,18 @@ Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection
 | Parameter | Class | Fields |
 | --- | --- | --- |
 | `colorbar_style` | `ColorbarStyle` | `drawedges`, `minimal_ticks`, `scalar_formatter`, `powerlimits`, `ticks`, `tick_labels`; advanced: `thickness`, `pad`, `pad_with_labels`, `facet_length`, `minimal_ticks_threshold` |
-| `features` | `MapFeatures` | `coastlines`, `borders`, `states`, `ocean`, `land`, `lakes`, `rivers`, `global_extent`, `extent`, `grid_bounds`; advanced: `resolution`, `coastline_color`, `coastline_linewidth`, `states_alpha`, `borders_alpha`, `boundary_linestyle`, `boundary_color`, `boundary_linewidth`, `boundary_zorder`, `water_color`, `water_zorder`, `land_color`, `ocean_color`, `background_zorder`, `grid_bounds_linewidth`, `grid_bounds_color`, `grid_bounds_zorder` |
-| `map_ticks` | `MapTicks` | `xbins`, `ybins`; advanced: `direction`, `minor_ticks`, `degree_symbol`, `direction_label`, `top_labels`, `right_labels`, `gridlines` |
+| `features` | `MapFeatures` | `coastlines`, `borders`, `states`, `ocean`, `land`, `lakes`, `rivers`, `global_extent`, `extent`, `grid_bounds`; advanced: `resolution`, `coastline_color`, `coastline_linewidth`, `coastline_alpha`, `coastline_zorder`, `states_alpha`, `borders_alpha`, `boundary_linestyle`, `boundary_color`, `boundary_linewidth`, `boundary_zorder`, `states_color`, `states_linestyle`, `states_linewidth`, `states_zorder`, `borders_color`, `borders_linestyle`, `borders_linewidth`, `borders_zorder`, `lakes_linewidth`, `rivers_linewidth`, `water_color`, `water_zorder`, `land_color`, `ocean_color`, `background_zorder`, `grid_bounds_linewidth`, `grid_bounds_color`, `grid_bounds_zorder` |
+| `map_ticks` | `MapTicks` | `xbins`, `ybins`; advanced: `direction`, `minor_ticks`, `degree_symbol`, `direction_label`, `top_labels`, `right_labels`, `gridlines`, `gridline_color`, `gridline_linestyle`, `gridline_linewidth`, `gridline_alpha` |
 | `clabel` | `ContourLabels` | `fmt`, `fontsize`, `inline`, `colors`, `levels`, `inline_spacing`, `rightside_up`, `use_clabeltext`, `manual`, `zorder` |
 | `hillshade` | `Hillshade` | `vert_exag`, `azimuth`, `altitude`, `alpha`, `field_alpha`, `cmap`, `spacing`, `method`, `levels`, `vmin`, `vmax`, `fraction`, `zorder_offset`, `rasterized` |
-| `significance` | `Significance` | `pvalues`, `level`, `color`, `alpha`, `marker`, `edgecolors`, `subsample`, `size`, `zorder` (`geoplot` only) |
-| `vectors` | `VectorField` | `u`, `v`, `subsample`, `add_key`, `key_magnitude`, `key_units`, `powerlimits`, `scale`, `scale_units`, `units`, `color`, `width`, `headwidth`, `headlength`, `headaxislength`, `minshaft`, `minlength`, `pivot`, `alpha`, `zorder`, `angles`, `key_fontsize`, `key_gap` |
+| `significance` | `Significance` | `pvalues`, `level`, `color`, `alpha`, `marker`, `edgecolors`, `subsample`, `size`, `zorder`, `hatch` |
+| `vectors` | `VectorField` | `u`, `v`, `subsample`, `add_key`, `key_magnitude`, `key_units`, `powerlimits`, `scale`, `scale_units`, `units`, `color`, `width`, `headwidth`, `headlength`, `headaxislength`, `minshaft`, `minlength`, `pivot`, `alpha`, `zorder`, `angles`, `key_fontsize`, `key_gap`, `cmap`, `vmin`, `vmax`, `key_color`, `key_align` |
 
 The fields marked advanced, and the `None`-valued fields of `VectorField`, keep the plotting defaults when left unset, so existing calls are unchanged.
+
+The `states_*` and `borders_*` fields style the two boundary layers separately and fall back to the shared `boundary_*` value when `None`. `gridline_*` apply when `gridlines` is true. `Significance(hatch="///")` replaces stippling with a hatch drawn over the region where `pvalues < level` (all non-missing `pvalues` when `level` is `None`); `color` and `edgecolors` set the hatch colour and `marker`, `size` and `subsample` are then ignored. `VectorField(cmap=...)` colours the arrows by magnitude on a normalisation shared by all panels and frames (`vmin` defaults to 0, `vmax` to the maximum magnitude), is mutually exclusive with `color`, and gives a mappable for `plot.add.colorbar(plot.quiver)`. `key_color` sets the key arrow and label colour and `key_align` (`"left"`, `"center"` or `"right"`) its horizontal position under the axes.
+
+`animate` accepts `significance=` as well as `vectors=`, with `pvalues` sharing the animation dimension of the data, and `title` as a string or a dictionary whose `label` is the title text and whose other keys are Matplotlib text properties. `GeoPlot.add.colorbar(style=ColorbarStyle(...))` overrides the plot-level `colorbar_style` for one colorbar, including `thickness`, `pad`, `pad_with_labels`, `facet_length` and `minimal_ticks_threshold`. `xg.plot.theme(font_family="serif")` sets the font family of the theme.
 
 ```python
 ds["topo"].xgeo.geoplot(
@@ -71,6 +75,12 @@ t2m.xgeo.geoplot(
     clabel=xg.plot_options.ContourLabels(fmt="%.1f", fontsize=7),
     vectors=xg.plot_options.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), color="k"),
 )
+plot = t2m.xgeo.geoplot(
+    map_ticks=xg.plot_options.MapTicks(gridlines=True, gridline_color="k", gridline_alpha=0.3),
+    significance=xg.plot_options.Significance(pvalues=pval, level=0.05, hatch="///"),
+    vectors=xg.plot_options.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), cmap="viridis"),
+)
+plot.add.colorbar(plot.quiver, label="m s-1", style=xg.plot_options.ColorbarStyle(thickness=0.03))
 ```
 
 Enable hillshade to draw grayscale relief beneath a semitransparent scalar field:
@@ -110,7 +120,7 @@ trend = ds["t2m"].xgeo.trends(dim="time")
 correlation = ds["t2m"].xgeo.corr(other, dim="time")
 ```
 
-The functional APIs include `xgeo.regrid`, `xgeo.mask`, `xgeo.sel_transect`, `xgeo.wrap_lon`, `xgeo.add_local_solar_time`, and `xgeo.stats`. `regrid` takes a target grid as a Dataset or DataArray with one-dimensional `lat` and `lon` coordinates, or as a resolution in degrees spanning the source extent. Coordinate names are set with `lat` and `lon`. Passing both `lat_b` and `lon_b` marks the source as a two-dimensional (curvilinear) grid; the bounds may be cell corners `(ny + 1, nx + 1)` or CF bounds `(ny, nx, 4)`. The output is always a one-dimensional latitude-longitude grid with the bounds dropped. Regridding imports `xesmf` on first use. See [`core/accessors.py`](core/accessors.py), [`core/xr_utils.py`](core/xr_utils.py), and [`core/stats.py`](core/stats.py) for signatures.
+The functional APIs live in `xgeo.xr_utils` (`regrid`, `mask`, `fillgaps`, `sel_transect`, `wrap_lon`, `add_cyclic_point`, `add_local_solar_time`) and `xgeo.stats`. `regrid` takes a target grid as a Dataset or DataArray with one-dimensional `lat` and `lon` coordinates, or as a resolution in degrees spanning the source extent. Coordinate names are set with `lat` and `lon`. Passing both `lat_b` and `lon_b` marks the source as a two-dimensional (curvilinear) grid; the bounds may be cell corners `(ny + 1, nx + 1)` or CF bounds `(ny, nx, 4)`. The output is always a one-dimensional latitude-longitude grid with the bounds dropped. Regridding imports `xesmf` on first use. See [`core/accessors.py`](core/accessors.py), [`core/xr_utils.py`](core/xr_utils.py), and [`core/stats.py`](core/stats.py) for signatures.
 
 Serial NetCDF I/O uses Xarray's native interface, such as `ds.to_netcdf("output.nc")`. The former MPI-backed `.xgeo.append()` and `.xgeo.to_netcdf()` methods and top-level MPI aliases are removed. Use [`xrmpi`](../xrmpi/README.md) directly for distributed arrays and collective NetCDF I/O; xgeo does not import or install it.
 
@@ -146,8 +156,8 @@ XNpy stores save NumPy, pandas, and Xarray objects as `.npy` payloads with a JSO
 ```python
 import xgeo as xg
 
-xg.to_xnpy(ds, "run_001")
-restored = xg.open_xnpy_dataset("run_001")
+xg.xnpy.to_xnpy(ds, "run_001")
+restored = xg.xnpy.open_dataset("run_001")
 ```
 
 See [`core/xnpy.py`](core/xnpy.py) for storage options.
@@ -156,11 +166,14 @@ See [`core/xnpy.py`](core/xnpy.py) for storage options.
 
 | Namespace | Purpose |
 | --- | --- |
-| `xgeo` | Geospatial helpers, preprocessing, plotting entry points, and storage |
+| `xgeo` | Light shared utilities only (`LockedLogger`, `LockFile`, `RedirectStreams`, `locked_print`, `exclude_key`, `nproc`) |
 | `xgeo.plot` | Cartopy geographic plotting |
 | `xgeo.stats` | Trends, correlations, and significance testing |
 | `xgeo.cmaps` | Scientific colormaps |
-| `xgeo.cdo` | CDO command-line wrapper (`remapbil`, `remapcon`, `mergetime`, `run`) |
+| `xgeo.xr_utils` | Regridding, masking, gap filling, transects, longitude wrapping, local solar time |
+| `xgeo.xnpy` | Memory-mapped array storage (`to_xnpy`, `open_dataset`, `open_dataframe`, `load_array`) |
+| `xgeo.preprocess` | ERA5, IMERG, CMORPH, and GPCP preprocessing |
+| `xgeo.grib_io` | GRIB input and output |
 | `xrmpi` | Separate package for distributed arrays and parallel I/O |
 
 ## Links

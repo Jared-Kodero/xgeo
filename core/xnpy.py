@@ -32,11 +32,18 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+__all__ = [
+    "load_array",
+    "open_dataframe",
+    "open_dataset",
+    "to_xnpy",
+]
+
 # Keys the reader interprets as type tags; dicts containing them stay tagged.
 _RESERVED_TAGS = {"$type", "__tuple__", "__dict__", "__ndarray__", "__xnpy__"}
 
 
-def open_xnpy_ndarray(
+def load_array(
     path: str | Path, *, mmap_mode: Literal["r", "r+", "c"] | None = "r"
 ) -> np.ndarray:
     """Open an ndarray store.
@@ -58,29 +65,30 @@ def open_xnpy_ndarray(
     TypeError
         If the store does not hold an ndarray.
     """
-    obj = open_xnpy(path, mmap_mode=mmap_mode)
+    obj = _open(path, mmap_mode=mmap_mode)
     if not isinstance(obj, np.ndarray):
         raise TypeError(f"Store {path} does not hold an ndarray.")
     return obj
 
 
-def open_xnpy_dataframe(
+def open_dataframe(
     path: str | Path,
-    variables: list[str] | tuple[str] | str | None = None,
+    variables: list[str] | tuple[str, ...] | str | None = None,
     *,
     mmap_mode: Literal["r", "r+", "c"] | None = "r",
 ) -> pd.DataFrame | pd.Series:
-    """Open a DataFrame or Series store, optionally restricted to one column.
+    """Open a DataFrame or Series store, optionally restricted to some columns.
 
-    If ``variables`` is specified, only the payloads of the column labelled ``variables``
-    are opened and the result is a one-column DataFrame carrying the stored
-    index. ``variables`` is ignored for a Series store.
+    If ``variables`` is specified, only the payloads of the columns it labels
+    are opened and the result is a DataFrame carrying the stored index.
+    ``variables`` is ignored for a Series store.
 
     Parameters
     ----------
     path : str or pathlib.Path
         XNpy store directory.
-    variables : list[str], tuple[str], str, or None, optional
+    variables : list[str], tuple[str, ...], str, or None, optional
+        Column labels to open. All columns are opened when omitted.
     mmap_mode : {"r", "r+", "c"} or None, default="r"
         Memory-map mode passed to :func:`numpy.load`.
 
@@ -94,61 +102,61 @@ def open_xnpy_dataframe(
     TypeError
         If the store holds neither a DataFrame nor a Series.
     """
-    obj = open_xnpy(path, variables=variables, mmap_mode=mmap_mode)
+    obj = _open(path, variables=variables, mmap_mode=mmap_mode)
     if not isinstance(obj, pd.DataFrame | pd.Series):
         raise TypeError(f"Store {path} does not hold a DataFrame or Series.")
     return obj
 
 
-def open_xnpy_dataset(
+def open_dataset(
     path: str | Path,
     *,
-    variables: list[str] | tuple[str] | str | None = None,
+    variables: list[str] | tuple[str, ...] | str | None = None,
     mmap_mode: Literal["r", "r+", "c"] | None = "r",
-) -> xr.Dataset:
+) -> xr.Dataset | xr.DataArray:
     """Open a Dataset store.
 
     Parameters
     ----------
     path : str or pathlib.Path
         XNpy store directory.
-    variables : list[str], tuple[str], str, or None, optional
+    variables : list[str], tuple[str, ...], str, or None, optional
         Data variables to open. A single name returns a DataArray.
     mmap_mode : {"r", "r+", "c"} or None, default="r"
         Memory-map mode passed to :func:`numpy.load`.
 
     Returns
     -------
-    xarray.Dataset
-        The loaded xarray Dataset.
+    xarray.Dataset or xarray.DataArray
+        The loaded Dataset, or a DataArray when ``variables`` is a single name.
 
     Raises
     ------
     TypeError
         If the store does not hold a Dataset.
     """
-    obj = open_xnpy(path, variables=variables, mmap_mode=mmap_mode)
-    if not isinstance(obj, xr.Dataset):
+    obj = _open(path, variables=variables, mmap_mode=mmap_mode)
+    if not isinstance(obj, xr.Dataset | xr.DataArray):
         raise TypeError(f"Store {path} does not hold a Dataset.")
     return obj
 
 
-def open_xnpy(
+def _open(
     path: str | Path,
-    variables: list[str] | tuple[str] | str | None = None,
+    variables: list[str] | tuple[str, ...] | str | None = None,
     *,
     mmap_mode: Literal["r", "r+", "c"] | None = "r",
 ) -> np.ndarray | pd.Series | pd.DataFrame | xr.DataArray | xr.Dataset:
     """Open a NumPy, pandas, or xarray object from a memory-mappable XNpy store.
 
     The return type is determined at runtime from the store manifest. Use
-    :func:`open_xnpy_dataframe` or :func:`open_xnpy_dataset` for static typing.
+    :func:`open_dataframe` or :func:`open_dataset` for statically typed readers.
 
     Parameters
     ----------
     path : str or pathlib.Path
         XNpy store directory.
-    variables : list[str], tuple[str], str, or None, optional
+    variables : list[str], tuple[str, ...], str, or None, optional
         Dataset variables or DataFrame column label to return. Ignored for
         ndarray, Series, and DataArray stores. For a DataFrame, only the
         selected column payloads are opened and a one-column DataFrame is
@@ -750,7 +758,7 @@ def decode_metadata(
         if "__ndarray__" in value:
             return np.array(value["__ndarray__"], dtype=value["dtype"])
         if "__xnpy__" in value:
-            return open_xnpy(root / value["__xnpy__"], mmap_mode=mmap_mode)
+            return _open(root / value["__xnpy__"], mmap_mode=mmap_mode)
         return {
             key: decode_metadata(item, root, mmap_mode) for key, item in value.items()
         }
@@ -791,5 +799,5 @@ def decode_metadata(
         )
         return array.reshape(value["shape"])
     if type_name == "xnpy":
-        return open_xnpy(root / value["path"], mmap_mode=mmap_mode)
+        return _open(root / value["path"], mmap_mode=mmap_mode)
     raise ValueError(f"Unknown metadata type: {type_name!r}.")

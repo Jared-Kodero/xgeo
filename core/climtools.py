@@ -25,6 +25,16 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from logging import Handler, Logger
 
+__all__ = [
+    "LockFile",
+    "LockedLogger",
+    "RedirectStreams",
+    "SharedMemoryObject",
+    "exclude_key",
+    "locked_print",
+    "nproc",
+]
+
 
 HOST: str = socket.gethostname()
 USER: str = getpass.getuser()
@@ -193,7 +203,7 @@ class LockFile:
             raise
 
     def release(self) -> None:
-        """Release the acquired file lock and close the underlying file descripto"""
+        """Release the acquired file lock and close the underlying file descriptor."""
         if self.fd is not None:
             try:
                 fcntl.flock(self.fd, fcntl.LOCK_UN)

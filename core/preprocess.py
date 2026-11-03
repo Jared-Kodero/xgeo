@@ -7,6 +7,14 @@ from xarray.coding.times import encode_cf_datetime
 
 from .xr_utils import wrap_lon
 
+__all__ = [
+    "cmorph",
+    "era5",
+    "era5_land",
+    "gpcp",
+    "imerg",
+]
+
 attributes = {
     "t2m": {"units": "degC", "factor": 273.15, "operand": op.sub},
     "t": {"units": "degC", "factor": 273.15, "operand": op.sub},

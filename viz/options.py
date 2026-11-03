@@ -167,7 +167,6 @@ class Hillshade(_Option):
     field_alpha: float | None = 0.65
     cmap: str | Colormap = "gray"
     spacing: Literal["auto", "pixel"] | tuple[float, float] = "auto"
-    hillshade_only: bool = False
     method: Literal["default", "pcolormesh", "imshow", "contourf"] = "default"
     levels: int | Sequence[float] | None = None
     vmin: float = 0.0
@@ -276,6 +275,17 @@ class MapTicks(_Option):
         Default ``False``.
     gridlines : bool, optional
         Draw grid lines through the ticks. Default ``False``.
+    gridline_color : str, optional
+        Grid-line color. Matplotlib's grid color when omitted.
+    gridline_linestyle : str, optional
+        Grid-line style, for example ``"--"`` or ``":"``. Matplotlib's grid
+        style when omitted.
+    gridline_linewidth : float, optional
+        Grid-line width in points. Matplotlib's grid width when omitted.
+    gridline_alpha : float, optional
+        Grid-line opacity, in [0, 1]. Opaque when omitted.
+
+    The ``gridline_*`` fields take effect only when ``gridlines`` is true.
     """
 
     xbins: int = 5
@@ -287,6 +297,10 @@ class MapTicks(_Option):
     top_labels: bool | None = None
     right_labels: bool | None = None
     gridlines: bool | None = None
+    gridline_color: str | None = None
+    gridline_linestyle: str | None = None
+    gridline_linewidth: float | None = None
+    gridline_alpha: float | None = None
 
     def __post_init__(self) -> None:
         if self.direction is not None and self.direction not in (
@@ -295,6 +309,12 @@ class MapTicks(_Option):
             "inout",
         ):
             raise ValueError("direction must be 'out', 'in' or 'inout'")
+        if self.gridline_alpha is not None and not 0.0 <= self.gridline_alpha <= 1.0:
+            raise ValueError("gridline_alpha must be None or lie in [0, 1]")
+        if self.gridline_linewidth is not None and not (
+            math.isfinite(self.gridline_linewidth) and self.gridline_linewidth >= 0.0
+        ):
+            raise ValueError("gridline_linewidth must be non-negative and finite")
 
     def tick_arguments(self) -> dict[str, Any]:
         """Return the keyword arguments of :func:`~xgeo.viz.primitives.add_xy_ticks`.
@@ -441,6 +461,26 @@ class MapFeatures(_Option):
         Matplotlib line width.
     boundary_zorder : float, optional
         Drawing order of the state and country boundaries. Default 3.
+    states_color, borders_color : str, optional
+        Color of the state or the country boundaries alone. Overrides
+        ``boundary_color`` for that feature.
+    states_linestyle, borders_linestyle : str, optional
+        Line style of the state or the country boundaries alone. Overrides
+        ``boundary_linestyle`` for that feature.
+    states_linewidth, borders_linewidth : float, optional
+        Width in points of the state or the country boundaries alone. Overrides
+        ``boundary_linewidth`` for that feature.
+    states_zorder, borders_zorder : float, optional
+        Drawing order of the state or the country boundaries alone. Overrides
+        ``boundary_zorder`` for that feature.
+    coastline_alpha : float, optional
+        Coastline opacity, in [0, 1]. Opaque when omitted.
+    coastline_zorder : float, optional
+        Drawing order of the coastlines. Cartopy's default is used when
+        omitted.
+    lakes_linewidth, rivers_linewidth : float, optional
+        Outline width of the lakes and width of the rivers in points.
+        Cartopy's default is used when omitted.
     water_color : str, optional
         Color of lakes and rivers. Default is Cartopy's water color.
     water_zorder : float, optional
@@ -480,6 +520,18 @@ class MapFeatures(_Option):
     boundary_color: str | None = None
     boundary_linewidth: float | None = None
     boundary_zorder: float | None = None
+    states_color: str | None = None
+    states_linestyle: str | None = None
+    states_linewidth: float | None = None
+    states_zorder: float | None = None
+    borders_color: str | None = None
+    borders_linestyle: str | None = None
+    borders_linewidth: float | None = None
+    borders_zorder: float | None = None
+    coastline_alpha: float | None = None
+    coastline_zorder: float | None = None
+    lakes_linewidth: float | None = None
+    rivers_linewidth: float | None = None
     water_color: str | None = None
     water_zorder: float | None = None
     land_color: str | None = None
@@ -498,13 +550,17 @@ class MapFeatures(_Option):
             "10m",
         ):
             raise ValueError("resolution must be '110m', '50m' or '10m'")
-        for name in ("states_alpha", "borders_alpha"):
+        for name in ("states_alpha", "borders_alpha", "coastline_alpha"):
             value = getattr(self, name)
             if value is not None and not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be None or lie in [0, 1]")
         for name in (
             "coastline_linewidth",
             "boundary_linewidth",
+            "states_linewidth",
+            "borders_linewidth",
+            "lakes_linewidth",
+            "rivers_linewidth",
             "grid_bounds_linewidth",
         ):
             value = getattr(self, name)
@@ -566,6 +622,11 @@ class Significance(_Option):
         Marker area in points squared.
     zorder : float, default 3.0
         Drawing order.
+    hatch : str, optional
+        Matplotlib hatch pattern, for example ``"///"`` or ``".."``. The
+        significant region is then filled with hatching, drawn in ``color`` (or
+        ``edgecolors`` when given) with the opacity ``alpha``, instead of
+        markers. ``marker`` and ``size`` are ignored.
     """
 
     pvalues: xr.DataArray
@@ -577,10 +638,13 @@ class Significance(_Option):
     subsample: int | tuple[int, int] = (1, 1)
     size: float = 0.25
     zorder: float = 3.0
+    hatch: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.pvalues, xr.DataArray):
             raise TypeError("pvalues must be an xarray.DataArray")
+        if self.hatch is not None and not isinstance(self.hatch, str):
+            raise TypeError("hatch must be a string")
         if self.level is not None and not 0.0 <= self.level <= 1.0:
             raise ValueError("level must be None or lie in [0, 1]")
         if not 0.0 <= self.alpha <= 1.0:
@@ -644,6 +708,20 @@ class VectorField(_Option):
     key_gap : float, optional
         Gap in points between the quiver key and the lowest axis decoration
         above it. Default 4.
+    cmap : str or matplotlib.colors.Colormap, optional
+        Color the arrows by vector magnitude with this colormap instead of a
+        single ``color``; the two are mutually exclusive. The arrows are
+        a scalar mappable, so ``plot.add.colorbar(plot.quiver)`` adds a
+        colorbar (for a faceted plot pass one element of ``plot.quiver``).
+    vmin, vmax : float, optional
+        Magnitude limits of ``cmap``. Default to 0 and the largest magnitude of
+        the plotted field, shared by every panel and animation frame.
+    key_color : str, optional
+        Color of the quiver-key arrow and label. Black when omitted.
+    key_align : {"left", "center", "right"}, optional
+        Horizontal alignment of the quiver key along the lower edge of the
+        axes. Default ``"left"``. The vertical position stays automatic, below
+        the axis decorations.
     """
 
     u: xr.DataArray
@@ -671,6 +749,11 @@ class VectorField(_Option):
     angles: Literal["uv", "xy"] | None = None
     key_fontsize: float | None = None
     key_gap: float | None = None
+    cmap: str | Colormap | None = None
+    vmin: float | None = None
+    vmax: float | None = None
+    key_color: str | None = None
+    key_align: Literal["left", "center", "right"] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.u, xr.DataArray) or not isinstance(self.v, xr.DataArray):
@@ -689,6 +772,16 @@ class VectorField(_Option):
             math.isfinite(self.key_gap) and self.key_gap >= 0.0
         ):
             raise ValueError("key_gap must be non-negative and finite")
+        if self.cmap is not None and self.color is not None:
+            raise ValueError("cmap and color are mutually exclusive")
+        if self.vmin is not None and self.vmax is not None and self.vmin >= self.vmax:
+            raise ValueError("vmin must be smaller than vmax")
+        if self.key_align is not None and self.key_align not in (
+            "left",
+            "center",
+            "right",
+        ):
+            raise ValueError("key_align must be 'left', 'center' or 'right'")
 
     def style(self) -> dict[str, Any]:
         """Return every non-``None`` field except the components ``u`` and ``v``."""

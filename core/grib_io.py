@@ -10,6 +10,12 @@ import eccodes
 import numpy as np
 import xarray as xr
 
+__all__ = [
+    "get_grib_codes",
+    "open_grib",
+    "save_grib",
+]
+
 
 def get_level_types() -> tuple[str, ...]:
     """Return GRIB2 level types defined by the installed ecCodes library."""

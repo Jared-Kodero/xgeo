@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from IPython.display import DisplayHandle
     from matplotlib.collections import PathCollection
     from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize
+    from matplotlib.contour import QuadContourSet
 
     from ..viz.options import (
         ColorbarStyle,
@@ -32,6 +33,12 @@ if TYPE_CHECKING:
         VectorField,
     )
     from ..viz.plot import GeoPlot
+
+__all__ = [
+    "GeoDataArray",
+    "GeoDataset",
+    "fix_xarray",
+]
 
 
 class GeoBase:
@@ -437,17 +444,14 @@ class GeoDataArray(GeoBase):
         colorbar_orientation : {"vertical", "horizontal"}, optional
             Base colorbar orientation. Vertical when omitted.
         colorbar_style : ColorbarStyle, optional
-            Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-            ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
-            the scientific-notation threshold of the quiver key unless overridden
-            in ``vectors``.
+            Colorbar styling and layout; see :class:`ColorbarStyle` for all fields.
+            ``powerlimits`` also sets the scientific-notation threshold of the quiver
+            key unless overridden in ``vectors``.
         features : MapFeatures, optional
-            Map features and extent: ``coastlines``, ``borders``, ``states``,
-            ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
-            ``extent`` and ``grid_bounds``.
+            Map features, extent and grid outline; see :class:`MapFeatures` for all
+            fields.
         map_ticks : bool or MapTicks, default False
-            Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
-            and ``ybins``.
+            Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
         significance : Significance, optional
             Pointwise p-values (``pvalues``) drawn as significance markers.
             Marker styling fields are documented on :class:`Significance`.
@@ -461,7 +465,7 @@ class GeoDataArray(GeoBase):
             Draw grayscale relief beneath the field in the plot. ``True`` uses the
             :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
             exaggeration 1 and physical cell spacing for degree and metre grids.
-            The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+            The field uses alpha 0.65 unless an explicit ``alpha`` is supplied.
             Shading is computed per facet and animation frame.
         cyclic : bool, default False
             Append a cyclic longitude point before plot.
@@ -518,13 +522,14 @@ class GeoDataArray(GeoBase):
         symmetrical: bool = False,
         zero_white: bool = False,
         rasterized: bool = False,
-        title: str | None = None,
+        title: str | dict[str, Any] | None = None,
         colorbar: bool = True,
         colorbar_label: str | None = None,
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
         map_ticks: bool | MapTicks = False,
+        significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
         hillshade: bool | Hillshade = False,
@@ -575,8 +580,10 @@ class GeoDataArray(GeoBase):
             Use symmetrical color limits around zero where supported.
         zero_white : bool, default False
             Centre a band on zero and colour it white on divergent scales.
-        title : str, optional
-            Base frame title.
+        title : str or dict, optional
+            Base frame title. A dict holds the prefix under ``label`` and keyword
+            arguments for ``Axes.set_title`` or ``Figure.suptitle``, which
+            override the defaults (``loc="left"``, ``fontfamily="monospace"``).
         colorbar : bool, default True
             Add a base colorbar for scalar plots other than line contours.
             Line contours use inline contour labels instead.
@@ -585,20 +592,23 @@ class GeoDataArray(GeoBase):
         colorbar_orientation : {"vertical", "horizontal"}, optional
             Base colorbar orientation. Vertical when omitted.
         colorbar_style : ColorbarStyle, optional
-            Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-            ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
-            the scientific-notation threshold of the quiver key unless overridden
-            in ``vectors``.
+            Colorbar styling and layout; see :class:`ColorbarStyle` for all fields.
+            ``powerlimits`` also sets the scientific-notation threshold of the quiver
+            key unless overridden in ``vectors``.
         features : MapFeatures, optional
-            Map features and extent: ``coastlines``, ``borders``, ``states``,
-            ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
-            ``extent`` and ``grid_bounds``.
+            Map features, extent and grid outline; see :class:`MapFeatures` for all
+            fields.
         map_ticks : bool or MapTicks, default False
-            Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
-            and ``ybins``.
+            Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
+        significance : Significance, optional
+            Pointwise p-values (``pvalues``) drawn as significance markers or
+            hatching. ``pvalues`` must contain the animation dimension and is
+            selected per frame. Styling fields are documented on
+            :class:`Significance`.
         vectors : VectorField, optional
             Vector components ``u`` and ``v`` drawn as a quiver layer. Both must contain the animation dimension and are selected per frame.
-            Arrow styling fields are documented on :class:`VectorField`.
+            Arrow styling fields are documented on :class:`VectorField`. With
+            ``cmap`` set, the default magnitude limits span the whole animation.
         clabel : bool or ContourLabels, default False
             Label line contours. Line contours are always labelled.
             Label fields are documented on :class:`ContourLabels`.
@@ -606,7 +616,7 @@ class GeoDataArray(GeoBase):
             Draw grayscale relief beneath the field in each frame. ``True`` uses the
             :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
             exaggeration 1 and physical cell spacing for degree and metre grids.
-            The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+            The field uses alpha 0.65 unless an explicit ``alpha`` is supplied.
             Shading is computed per facet and animation frame.
         cyclic : bool, default False
             Append a cyclic longitude point to each frame.
@@ -671,7 +681,10 @@ class GeoDataArray(GeoBase):
         key_units : str, optional
             Units shown on the key.
         **kwargs : Any
-            Additional arguments forwarded to ``Axes.quiver``.
+            Additional arguments forwarded to :func:`xgeo.viz.primitives.plot_quiver`
+            and from there to ``Axes.quiver``. These include ``cmap``, ``vmin``
+            and ``vmax`` (color the arrows by magnitude) and ``key_color`` and
+            ``key_align`` (style and align the key).
 
         Returns
         -------
@@ -712,7 +725,8 @@ class GeoDataArray(GeoBase):
         edgecolors: str | None = None,
         subsample: int | tuple[int, int] = (1, 1),
         size: float = 0.25,
-    ) -> PathCollection:
+        hatch: str | None = None,
+    ) -> PathCollection | QuadContourSet:
         """Mark grid points of the bound p-value field below ``level``.
 
         Parameters
@@ -735,11 +749,16 @@ class GeoDataArray(GeoBase):
             Grid stride used to thin the markers.
         size : float, default 0.25
             Marker size.
+        hatch : str, optional
+            Matplotlib hatch pattern, for example ``"///"``. The significant
+            region is hatched, in ``edgecolors`` (default ``color``), instead of
+            marked; ``marker`` and ``size`` are ignored.
 
         Returns
         -------
-        matplotlib.collections.PathCollection
-            The scatter artist holding the markers.
+        matplotlib.collections.PathCollection or matplotlib.contour.QuadContourSet
+            The scatter artist holding the markers, or the hatched region when
+            ``hatch`` is set.
 
         """
 

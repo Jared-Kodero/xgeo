@@ -13,6 +13,12 @@ from scipy import stats
 
 import xarray as xr
 
+__all__ = [
+    "corr",
+    "pvalues",
+    "trends",
+]
+
 try:
     import pymannkendall as mk
 except ImportError:

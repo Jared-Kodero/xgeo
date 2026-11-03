@@ -89,6 +89,7 @@ __all__ = [
     "Animate",
     "FacetedPlot",
     "GeoPlot",
+    "Theme",
     "animate",
     "colorbar",
     "create_figure",
@@ -132,7 +133,7 @@ class Theme:
         ] = "colorblind",
         context: Literal["paper", "notebook", "talk", "poster"] = "paper",
         style: str = "ticks",
-        spine: bool = False,
+        spine: bool = True,
         grid: bool = False,
         rc_params: dict | None = None,
     ) -> None:
@@ -264,6 +265,7 @@ def theme(
     tick_direction: Literal["in", "out"] = "in",
     legend_frame: bool = False,
     font_size: int | None = None,
+    font_family: Literal["sans-serif", "serif"] = "sans-serif",
     column_width: Literal["single", "double"] | None = None,
     latex: bool = False,
     palette: Literal[
@@ -294,6 +296,8 @@ def theme(
         Whether to draw a bounding box frame around legends. Default is False.
     font_size : int or None, optional
         Base font size for text elements. Default is None.
+    font_family : {"sans-serif", "serif"}, optional
+        Matplotlib font family of all text. Default is "sans-serif".
     column_width : {"single", "double"} or None, optional
         Target journal layout width. ``"single"`` sets ``font_scale`` and
         ``line_width`` to 1 and the default figure size to 4.5 x 4 inches.
@@ -714,8 +718,9 @@ class GeoPlot:
         Centre a band on zero and colour it white on divergent scales.
     rasterized : bool, default False
         Rasterize dense scalar primitives.
-    title : str | Dict, default None
-        Plot title. if dict provide options accepted by plt.title or figure.suptitle
+    title : str or dict, optional
+        Plot title. A dict holds ``label`` and keyword arguments for
+        :meth:`matplotlib.axes.Axes.set_title` or :meth:`matplotlib.figure.Figure.suptitle`.
     colorbar : bool, default True
         Add a base colorbar for scalar plots other than line contours.
         Line contours use inline contour labels instead.
@@ -724,17 +729,14 @@ class GeoPlot:
     colorbar_orientation : {"vertical", "horizontal"}, optional
         Base colorbar orientation. Vertical when omitted.
     colorbar_style : ColorbarStyle, optional
-        Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-        ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
-        the scientific-notation threshold of the quiver key unless overridden
-        in ``vectors``.
+        Colorbar styling and layout; see :class:`ColorbarStyle` for all fields.
+        ``powerlimits`` also sets the scientific-notation threshold of the quiver
+        key unless overridden in ``vectors``.
     features : MapFeatures, optional
-        Map features and extent: ``coastlines``, ``borders``, ``states``,
-        ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
-        ``extent`` and ``grid_bounds``.
+        Map features, extent and grid outline; see :class:`MapFeatures` for all
+        fields.
     map_ticks : bool or MapTicks, default False
-        Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
-        and ``ybins``.
+        Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers.
         Marker styling fields are documented on :class:`Significance`.
@@ -748,7 +750,7 @@ class GeoPlot:
         Draw grayscale relief beneath the field in the plot. ``True`` uses the
         :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
         exaggeration 1 and physical cell spacing for degree and metre grids.
-        The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+        The field uses alpha 0.65 unless an explicit ``alpha`` is supplied.
         Shading is computed per facet and animation frame.
     cyclic : bool, default False
         Append a cyclic horizontal point before plotting.
@@ -1667,6 +1669,11 @@ class Adder:
         color: str | None = None,
         width: float | None = None,
         zorder: float = 4.0,
+        cmap: str | Colormap | None = None,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        key_color: str | None = None,
+        key_align: Literal["left", "center", "right"] = "left",
         **kwargs: Any,
     ) -> GeoPlot:
         """Add a vector layer.
@@ -1698,6 +1705,17 @@ class Adder:
             Arrow-shaft width.
         zorder : float, default 4
             Drawing order.
+        cmap : str or matplotlib.colors.Colormap, optional
+            Color the arrows by vector magnitude. Mutually exclusive with
+            ``color``. ``plot.add.colorbar(plot.quiver)`` adds a colorbar (for a
+            faceted plot pass one element of ``plot.quiver``).
+        vmin, vmax : float, optional
+            Magnitude limits of ``cmap``, shared by every panel. Default to 0 and
+            the largest magnitude of the field.
+        key_color : str, optional
+            Color of the key arrow and label. Black when omitted.
+        key_align : {"left", "center", "right"}, default "left"
+            Horizontal alignment of the key along the lower edge of the axes.
         **kwargs
             Additional arguments forwarded to :func:`plot_quiver`.
 
@@ -1714,6 +1732,10 @@ class Adder:
         assert validated_u is not None and validated_v is not None
         if add_key and key_magnitude is None:
             key_magnitude = get_quiver_key_mag(validated_u, validated_v)
+        if cmap is not None:
+            magnitude = np.hypot(validated_u, validated_v)
+            vmin = 0.0 if vmin is None else vmin
+            vmax = float(magnitude.max()) if vmax is None else vmax
         key_axis = (
             self._plot.faceted_plot.bottom_left_axis()
             if self._plot.faceted_plot is not None
@@ -1739,6 +1761,11 @@ class Adder:
                 color=color,
                 width=width,
                 zorder=zorder,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                key_color=key_color,
+                key_align=key_align,
                 **kwargs,
             )
 
@@ -1763,8 +1790,9 @@ class Adder:
         subsample: int | tuple[int, int] | list[int] = (1, 1),
         size: float = 0.25,
         zorder: float = 3.0,
+        hatch: str | None = None,
     ) -> GeoPlot:
-        """Add pointwise significance markers.
+        """Add pointwise significance markers or hatching.
 
         Parameters
         ----------
@@ -1788,6 +1816,10 @@ class Adder:
             Marker area.
         zorder : float, default 3
             Drawing order.
+        hatch : str, optional
+            Matplotlib hatch pattern, for example ``"///"``. The significant
+            region is hatched, in ``edgecolors`` (default ``color``), instead of
+            marked; ``marker`` and ``size`` are ignored.
 
         Returns
         -------
@@ -1795,7 +1827,7 @@ class Adder:
             Parent plot.
         """
         pvalues = self._normalized(pvalues)
-        artists: list[PathCollection] = []
+        artists: list[PathCollection | QuadContourSet] = []
         for axis, selector in self._plot.iter_axes():
             artists.append(
                 plot_significance(
@@ -1812,6 +1844,7 @@ class Adder:
                     subsample=subsample,
                     size=size,
                     zorder=zorder,
+                    hatch=hatch,
                 )
             )
         self._plot.register_layer("significance", artists)
@@ -1822,13 +1855,14 @@ class Adder:
         mappable: ScalarMappable | None = None,
         *,
         orientation: Literal["vertical", "horizontal"] = "vertical",
-        drawedges: bool = True,
+        style: ColorbarStyle | None = None,
+        drawedges: bool | None = None,
         extend: Literal["neither", "both", "min", "max"] | None = None,
         label: str | None = None,
         ticks: Sequence[float] | np.ndarray | None = None,
         tick_labels: Sequence[str] | None = None,
-        minimal_ticks: bool | None = True,
-        scalar_formatter: bool = True,
+        minimal_ticks: bool | None = None,
+        scalar_formatter: bool | None = None,
         powerlimits: tuple[int, int] | None = None,
     ) -> GeoPlot:
         """Add a colorbar for an existing scalar primitive.
@@ -1840,8 +1874,14 @@ class Adder:
             omitted.
         orientation : {"vertical", "horizontal"}, default "vertical"
             Colorbar orientation.
-        drawedges : bool, default True
-            Draw interval edges.
+        style : ColorbarStyle, optional
+            Styling and layout of this colorbar, including ``thickness``,
+            ``pad``, ``pad_with_labels``, ``facet_length`` and
+            ``minimal_ticks_threshold``. Fields set here replace those of the
+            plot's own ``colorbar_style``; the keyword arguments below take
+            precedence over the style.
+        drawedges : bool, optional
+            Draw interval edges. Default True.
         extend : {"neither", "both", "min", "max"}, optional
             Out-of-range extension behavior.
         label : str, optional
@@ -1850,20 +1890,24 @@ class Adder:
             Explicit tick positions.
         tick_labels : sequence of str, optional
             Explicit tick labels.
-        minimal_ticks : bool, default True
-             If True, reduce the number of ticks skipping every other one when possible.
-        scalar_formatter : bool, default True
+        minimal_ticks : bool, optional
+            If True, reduce the number of ticks skipping every other one when
+            possible. Default True.
+        scalar_formatter : bool, optional
             Format automatic tick labels with a math-text ``ScalarFormatter``.
-            If False, keep the default Matplotlib formatter.
+            If False, keep the default Matplotlib formatter. Default True.
         powerlimits : tuple of int, optional
             Decimal exponents ``(lower, upper)`` for scientific notation in the
-            tick labels. Defaults to the plot's ``ColorbarStyle.powerlimits``.
+            tick labels. Defaults to ``style.powerlimits`` when ``style`` is
+            given, otherwise to the plot's ``ColorbarStyle.powerlimits``.
 
         Returns
         -------
         GeoPlot
             Parent plot.
         """
+        given = ColorbarStyle.coerce(style)
+        chosen = given or ColorbarStyle()
         colorbar = primitives.colorbar(
             mappable or self._plot.mappable,
             ax=self._plot.axes,
@@ -1871,16 +1915,29 @@ class Adder:
             orientation=orientation,
             subplots=self._plot.is_faceted,
             pad_bottom=True if self._plot.quiver_key is not None else None,
-            drawedges=drawedges,
+            drawedges=chosen.drawedges if drawedges is None else drawedges,
             extend=extend,
             label=label,
-            ticks=ticks,
-            tick_labels=tick_labels,
-            minimal_ticks=minimal_ticks,
+            ticks=chosen.ticks if ticks is None else ticks,
+            tick_labels=chosen.tick_labels if tick_labels is None else tick_labels,
+            minimal_ticks=(
+                chosen.minimal_ticks if minimal_ticks is None else minimal_ticks
+            ),
             zero_white=self._plot.zero_white,
-            scalar_formatter=scalar_formatter,
-            powerlimits=self._plot.powerlimits if powerlimits is None else powerlimits,
-            **self._plot.colorbar_style.advanced_arguments(),
+            scalar_formatter=(
+                chosen.scalar_formatter
+                if scalar_formatter is None
+                else scalar_formatter
+            ),
+            powerlimits=(
+                (chosen.powerlimits if given else self._plot.powerlimits)
+                if powerlimits is None
+                else powerlimits
+            ),
+            **(
+                self._plot.colorbar_style.advanced_arguments()
+                | chosen.advanced_arguments()
+            ),
         )
         self._plot.colorbar = colorbar
         self._plot.register_layer("colorbar", [colorbar])
@@ -1929,12 +1986,13 @@ def plot_animation_frame(
     frame_number: int,
     frame_value: Any,
     dim: str,
-    title: str,
+    title: str | Mapping[str, Any],
     dpi: int,
     session_tmp_dir: Path,
     data: xr.DataArray,
     u: xr.DataArray | None,
     v: xr.DataArray | None,
+    pvalues: xr.DataArray | None,
     frame_id: bool,
     total_frames: int,
     geo_options: Mapping[str, Any],
@@ -1947,11 +2005,17 @@ def plot_animation_frame(
 
     options = dict(geo_options)
     vector_style = options.pop("vector_style", None)
+    significance_style = options.pop("significance_style", None)
     options["da"] = data
     options["vectors"] = (
         None
         if u is None or v is None
         else VectorField(u=u, v=v, **(vector_style or {}))
+    )
+    options["significance"] = (
+        None
+        if pvalues is None
+        else Significance(pvalues=pvalues, **(significance_style or {}))
     )
     options["title"] = fmt_title
     plot = GeoPlot(**options)
@@ -1993,8 +2057,11 @@ class Animate:
         Use symmetrical color limits around zero where supported.
     zero_white : bool, default False
         Centre a band on zero and colour it white on divergent scales.
-    title : str, optional
-        Frame-title prefix.
+    title : str or dict, optional
+        Frame-title prefix. A dict holds the prefix under ``label`` and keyword
+        arguments for :meth:`matplotlib.axes.Axes.set_title` or
+        :meth:`matplotlib.figure.Figure.suptitle`, which override the defaults
+        (``loc="left"``, ``fontfamily="monospace"``).
     colorbar : bool, default True
         Add a base colorbar for scalar plots other than line contours.
         Line contours use inline contour labels instead.
@@ -2003,20 +2070,23 @@ class Animate:
     colorbar_orientation : {"vertical", "horizontal"}, optional
         Base colorbar orientation. Vertical when omitted.
     colorbar_style : ColorbarStyle, optional
-        Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-        ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
-        the scientific-notation threshold of the quiver key unless overridden
-        in ``vectors``.
+        Colorbar styling and layout; see :class:`ColorbarStyle` for all fields.
+        ``powerlimits`` also sets the scientific-notation threshold of the quiver
+        key unless overridden in ``vectors``.
     features : MapFeatures, optional
-        Map features and extent: ``coastlines``, ``borders``, ``states``,
-        ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
-        ``extent`` and ``grid_bounds``.
+        Map features, extent and grid outline; see :class:`MapFeatures` for all
+        fields.
     map_ticks : bool or MapTicks, default False
-        Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
-        and ``ybins``.
+        Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
+    significance : Significance, optional
+        Pointwise p-values (``pvalues``) drawn as significance markers or
+        hatching. ``pvalues`` must contain the animation dimension and is
+        selected per frame. Styling fields are documented on
+        :class:`Significance`.
     vectors : VectorField, optional
         Vector components ``u`` and ``v`` drawn as a quiver layer. Both must contain the animation dimension and are selected per frame.
-        Arrow styling fields are documented on :class:`VectorField`.
+        Arrow styling fields are documented on :class:`VectorField`. With
+        ``cmap`` set, the default magnitude limits span the whole animation.
     clabel : bool or ContourLabels, default False
         Label line contours. Line contours are always labelled.
         Label fields are documented on :class:`ContourLabels`.
@@ -2024,7 +2094,7 @@ class Animate:
         Draw grayscale relief beneath the field in each frame. ``True`` uses the
         :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
         exaggeration 1 and physical cell spacing for degree and metre grids.
-        The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+        The field uses alpha 0.65 unless an explicit ``alpha`` is supplied.
         Shading is computed per facet and animation frame.
     cyclic : bool, default False
         Append a cyclic horizontal point to each frame.
@@ -2038,8 +2108,8 @@ class Animate:
         Encoded frames per second.
     parallel : bool, default True
         Render frames using the Dask process scheduler.
-    frame_id: bool default False
-        If True add frame id to title
+    frame_id : bool, default False
+        If True, add the frame identifier to the title.
     display_inline : bool, default True
         Display the encoded MP4 in an active Jupyter kernel.
     **kwargs
@@ -2095,13 +2165,14 @@ class Animate:
         symmetrical: bool = False,
         zero_white: bool = False,
         rasterized: bool = False,
-        title: str | None = None,
+        title: str | Mapping[str, Any] | None = None,
         colorbar: bool = True,
         colorbar_label: str | None = None,
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
         map_ticks: bool | MapTicks = False,
+        significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
         hillshade: bool | Hillshade = False,
@@ -2120,14 +2191,28 @@ class Animate:
         options = dict(locals())
         extra = options.pop("kwargs")
         vector_field = VectorField.coerce(options.pop("vectors"))
+        significance_field = Significance.coerce(options.pop("significance"))
         self.dim = dim
         self.vectors = vector_field
+        self.significance = significance_field
         self.data, self.u_component, self.v_component = validate_animation_inputs(
             dim,
             da,
             None if vector_field is None else vector_field.u,
             None if vector_field is None else vector_field.v,
         )
+        self.pvalues: xr.DataArray | None = None
+        if significance_field is not None:
+            pvalues = validate_data(significance_field.pvalues)
+            if dim not in pvalues.dims:
+                raise ValueError(
+                    f"{dim!r} is not present in pvalues.dims {pvalues.dims!r}"
+                )
+            self.pvalues = pvalues.sortby(dim)
+            if not self.pvalues[dim].equals(self.data[dim]):
+                raise ValueError(
+                    "pvalues and da must have identical animation coordinates"
+                )
         if fps < 1:
             raise ValueError("fps must be greater than or equal to 1")
         self.fps = fps
@@ -2163,9 +2248,18 @@ class Animate:
         self.geo_options = (
             exclude_key(["da", "title"], get_function_inputs(GeoPlot, options)) | extra
         )
-        # u and v are selected per frame; only their styling is shared.
-        self.geo_options["vector_style"] = (
-            None if vector_field is None else vector_field.style()
+        # u and v are selected per frame; only their styling is shared. Arrows
+        # colored by magnitude keep one scale across the whole animation.
+        vector_style = None if vector_field is None else vector_field.style()
+        if vector_field is not None and vector_field.cmap is not None:
+            magnitude = np.hypot(self.u_component, self.v_component)
+            vector_style = {"vmin": 0.0, "vmax": float(magnitude.max())} | vector_style
+        self.geo_options["vector_style"] = vector_style
+        # pvalues is selected per frame; only its styling is shared.
+        self.geo_options["significance_style"] = (
+            None
+            if significance_field is None
+            else significance_field.arguments(exclude=("pvalues",))
         )
         self.display_result: Any | None = None
         self.run()
@@ -2255,6 +2349,7 @@ class Animate:
                 self.sel(self.data, index),
                 self.sel(self.u_component, index),
                 self.sel(self.v_component, index),
+                self.sel(self.pvalues, index),
                 self.frame_id,
                 len(self.indices),
                 self.geo_options,
@@ -2406,8 +2501,9 @@ def geoplot(
         Use symmetrical color limits around zero where supported.
     zero_white : bool, default False
         Centre a band on zero and colour it white on divergent scales.
-    title : str | Dict, default None
-        Plot title. if dict provide options accepted by plt.title or figure.suptitle
+    title : str or dict, optional
+        Plot title. A dict holds ``label`` and keyword arguments for
+        :meth:`matplotlib.axes.Axes.set_title` or :meth:`matplotlib.figure.Figure.suptitle`.
     colorbar : bool, default True
         Add a base colorbar for scalar plots other than line contours.
         Line contours use inline contour labels instead.
@@ -2416,17 +2512,14 @@ def geoplot(
     colorbar_orientation : {"vertical", "horizontal"}, optional
         Base colorbar orientation. Vertical when omitted.
     colorbar_style : ColorbarStyle, optional
-        Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-        ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
-        the scientific-notation threshold of the quiver key unless overridden
-        in ``vectors``.
+        Colorbar styling and layout; see :class:`ColorbarStyle` for all fields.
+        ``powerlimits`` also sets the scientific-notation threshold of the quiver
+        key unless overridden in ``vectors``.
     features : MapFeatures, optional
-        Map features and extent: ``coastlines``, ``borders``, ``states``,
-        ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
-        ``extent`` and ``grid_bounds``.
+        Map features, extent and grid outline; see :class:`MapFeatures` for all
+        fields.
     map_ticks : bool or MapTicks, default False
-        Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
-        and ``ybins``.
+        Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers.
         Marker styling fields are documented on :class:`Significance`.
@@ -2440,7 +2533,7 @@ def geoplot(
         Draw grayscale relief beneath the field in the plot. ``True`` uses the
         :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
         exaggeration 1 and physical cell spacing for degree and metre grids.
-        The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+        The field uses alpha 0.65 unless an explicit ``alpha`` is supplied.
         Shading is computed per facet and animation frame.
     cyclic : bool, default False
         Append a cyclic horizontal point.
@@ -2496,13 +2589,14 @@ def animate(
     symmetrical: bool = False,
     zero_white: bool = False,
     rasterized: bool = False,
-    title: str | None = None,
+    title: str | Mapping[str, Any] | None = None,
     colorbar: bool = True,
     colorbar_label: str | None = None,
     colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
     colorbar_style: ColorbarStyle | None = None,
     features: MapFeatures | None = None,
     map_ticks: bool | MapTicks = False,
+    significance: Significance | None = None,
     vectors: VectorField | None = None,
     clabel: bool | ContourLabels = False,
     hillshade: bool | Hillshade = False,
@@ -2541,8 +2635,11 @@ def animate(
         Use symmetrical color limits around zero where supported.
     zero_white : bool, default False
         Centre a band on zero and colour it white on divergent scales.
-    title : str, optional
-        Frame-title prefix.
+    title : str or dict, optional
+        Frame-title prefix. A dict holds the prefix under ``label`` and keyword
+        arguments for :meth:`matplotlib.axes.Axes.set_title` or
+        :meth:`matplotlib.figure.Figure.suptitle`, which override the defaults
+        (``loc="left"``, ``fontfamily="monospace"``).
     colorbar : bool, default True
         Add a base colorbar for scalar plots other than line contours.
         Line contours use inline contour labels instead.
@@ -2551,20 +2648,23 @@ def animate(
     colorbar_orientation : {"vertical", "horizontal"}, optional
         Base colorbar orientation. Vertical when omitted.
     colorbar_style : ColorbarStyle, optional
-        Colorbar styling: ``drawedges``, ``minimal_ticks``, ``scalar_formatter``,
-        ``powerlimits``, ``ticks`` and ``tick_labels``. ``powerlimits`` also sets
-        the scientific-notation threshold of the quiver key unless overridden
-        in ``vectors``.
+        Colorbar styling and layout; see :class:`ColorbarStyle` for all fields.
+        ``powerlimits`` also sets the scientific-notation threshold of the quiver
+        key unless overridden in ``vectors``.
     features : MapFeatures, optional
-        Map features and extent: ``coastlines``, ``borders``, ``states``,
-        ``ocean``, ``land``, ``lakes``, ``rivers``, ``global_extent``,
-        ``extent`` and ``grid_bounds``.
+        Map features, extent and grid outline; see :class:`MapFeatures` for all
+        fields.
     map_ticks : bool or MapTicks, default False
-        Draw longitude and latitude ticks. :class:`MapTicks` sets ``xbins``
-        and ``ybins``.
+        Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
+    significance : Significance, optional
+        Pointwise p-values (``pvalues``) drawn as significance markers or
+        hatching. ``pvalues`` must contain the animation dimension and is
+        selected per frame. Styling fields are documented on
+        :class:`Significance`.
     vectors : VectorField, optional
         Vector components ``u`` and ``v`` drawn as a quiver layer. Both must contain the animation dimension and are selected per frame.
-        Arrow styling fields are documented on :class:`VectorField`.
+        Arrow styling fields are documented on :class:`VectorField`. With
+        ``cmap`` set, the default magnitude limits span the whole animation.
     clabel : bool or ContourLabels, default False
         Label line contours. Line contours are always labelled.
         Label fields are documented on :class:`ContourLabels`.
@@ -2572,7 +2672,7 @@ def animate(
         Draw grayscale relief beneath the field in each frame. ``True`` uses the
         :class:`Hillshade` defaults: azimuth 315, altitude 45, vertical
         exaggeration 1 and physical cell spacing for degree and metre grids.
-        The field uses alpha 0.4 unless an explicit ``alpha`` is supplied.
+        The field uses alpha 0.65 unless an explicit ``alpha`` is supplied.
         Shading is computed per facet and animation frame.
     cyclic : bool, default False
         Append a cyclic horizontal point.
@@ -2586,8 +2686,8 @@ def animate(
         Frames per second.
     parallel : bool, default True
         Render frames using Dask processes.
-    frame_id: bool default True
-        If True add frame id to title
+    frame_id : bool, default True
+        If True, add the frame identifier to the title.
     display_inline : bool, default True
         Display the MP4 in Jupyter.
     **kwargs

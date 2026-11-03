@@ -395,7 +395,7 @@ def open_grib(path: str | Path) -> xr.DataTree:
 def save_grib(
     tree: xr.DataTree, path: str | Path, template: str | Path | None = None
 ) -> None:
-    """Write an xarray DataTree from open_grib back to GRIB using template messages.
+    """Write an xarray DataTree from ``open_grib`` back to GRIB using template messages.
 
     Only template messages whose node, variable, time, and level are still in
     the tree are written; removed ones are dropped. Fields are matched to

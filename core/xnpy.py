@@ -36,7 +36,7 @@ __all__ = [
     "load_array",
     "open_dataframe",
     "open_dataset",
-    "to_xnpy",
+    "save",
 ]
 
 # Keys the reader interprets as type tags; dicts containing them stay tagged.
@@ -300,7 +300,7 @@ def _open(
         raise ValueError(f"Unknown XNpy kind: {kind!r}.")
 
 
-def to_xnpy(
+def save(
     obj: np.ndarray | pd.Series | pd.DataFrame | xr.DataArray | xr.Dataset,
     path: str | Path,
     *,
@@ -646,7 +646,7 @@ def to_xnpy(
         dask.compute(*tasks, scheduler=scheduler, num_workers=num_workers)
 
         for position, value in enumerate(nested):
-            to_xnpy(
+            save(
                 value,
                 root / "attrs" / str(position),
                 scheduler=scheduler,

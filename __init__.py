@@ -14,7 +14,7 @@ The top level holds only the light shared utilities: ``LockedLogger``,
 - ``xr_utils``  Geospatial operations on xarray objects: ``regrid``, ``mask``,
   ``fillgaps``, ``sel_transect``, ``wrap_lon``, ``add_cyclic_point``,
   ``add_local_solar_time`` and ``SetupDask``.
-- ``xnpy``      Memory-mapped array storage: ``to_xnpy``, ``open_dataset``,
+- ``xnpy``      Memory-mapped array storage: ``save``, ``open_dataset``,
   ``open_dataframe`` and ``load_array``.
 - ``grib_io``   GRIB input and output: ``open_grib``, ``save_grib`` and
   ``get_grib_codes``.

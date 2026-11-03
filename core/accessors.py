@@ -283,7 +283,7 @@ class GeoBase:
         with :func:`numpy.save`, or streamed in slabs when large. Bare NumPy arrays
         are written the same way.
         """
-        return xnpy.to_xnpy(
+        return xnpy.save(
             self._obj,
             path,
             mode=mode,

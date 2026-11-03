@@ -156,7 +156,7 @@ XNpy stores save NumPy, pandas, and Xarray objects as `.npy` payloads with a JSO
 ```python
 import xgeo as xg
 
-xg.xnpy.to_xnpy(ds, "run_001")
+xg.xnpy.save(ds, "run_001")
 restored = xg.xnpy.open_dataset("run_001")
 ```
 
@@ -171,7 +171,7 @@ See [`core/xnpy.py`](core/xnpy.py) for storage options.
 | `xgeo.stats` | Trends, correlations, and significance testing |
 | `xgeo.cmaps` | Scientific colormaps |
 | `xgeo.xr_utils` | Regridding, masking, gap filling, transects, longitude wrapping, local solar time |
-| `xgeo.xnpy` | Memory-mapped array storage (`to_xnpy`, `open_dataset`, `open_dataframe`, `load_array`) |
+| `xgeo.xnpy` | Memory-mapped array storage (`save`, `open_dataset`, `open_dataframe`, `load_array`) |
 | `xgeo.preprocess` | ERA5, IMERG, CMORPH, and GPCP preprocessing |
 | `xgeo.grib_io` | GRIB input and output |
 | `xrmpi` | Separate package for distributed arrays and parallel I/O |

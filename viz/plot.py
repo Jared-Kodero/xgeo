@@ -37,16 +37,16 @@ from matplotlib.image import AxesImage
 
 from ..core.climtools import exclude_key, nproc, tmp
 from . import primitives
+from .layers import Significance, VectorField
 from .options import (
     ColorbarStyle,
     ContourLabels,
     Hillshade,
     MapFeatures,
-    MapThemeName,
     MapTicks,
-    Significance,
-    VectorField,
+    get_options,
     resolve_options,
+    set_options,
 )
 from .primitives import (
     add_contour_labels,
@@ -91,11 +91,15 @@ __all__ = [
     "Animate",
     "FacetedPlot",
     "GeoPlot",
+    "Significance",
     "Theme",
+    "VectorField",
     "animate",
     "colorbar",
     "create_figure",
     "geoplot",
+    "get_options",
+    "set_options",
     "theme",
 ]
 
@@ -113,7 +117,7 @@ class Theme:
 
     The parameters are those of :func:`theme`, which is the usual way to create
     an instance. A ``Theme`` can be used as a context manager: the theme is
-    applied on entry and the Matplotlib defaults are restored on exit::
+    applied on entry and the previous rc parameters are restored on exit::
 
         with xgeo.plot.theme(column_width="single"):
             xgeo.plot.geoplot(da)
@@ -139,7 +143,7 @@ class Theme:
         grid: bool = False,
         rc_params: dict | None = None,
     ) -> None:
-        self._rc_default = dict(plt.rcParamsDefault.copy())
+        self._rc_default: dict[str, Any] = {}
         self._backend_interactive = False
         self.interactive = interactive
         self.font_scale = font_scale
@@ -165,7 +169,7 @@ class Theme:
         self.reset()
 
     def reset(self) -> None:
-        """Reset matplotlib and seaborn settings to their defaults."""
+        """Restore the rc parameters that were active before :meth:`apply`."""
         interactive_backend(self._backend_interactive)
         plt.rcParams.update(self._rc_default)
 
@@ -180,6 +184,7 @@ class Theme:
         """
 
         interactive_backend(self.interactive)
+        self._rc_default = dict(plt.rcParams)
 
         font_scale = self.font_scale
         line_width = self.line_width
@@ -700,8 +705,6 @@ class GeoPlot:
     projection : {"PlateCarree", "Mercator", "Robinson", "Mollweide", "Orthographic", "LambertConformal", "AlbersEqualArea", "Stereographic", "NorthPolarStereo", "SouthPolarStereo"}, optional
         Display projection. A domain-dependent projection is inferred when
         omitted.
-    map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
-        Cartopy-only style preset. Explicit option groups override preset values.
     cmap : str or matplotlib.colors.Colormap, optional
         Base colormap.
     norm : matplotlib.colors.Normalize, optional
@@ -814,7 +817,6 @@ class GeoPlot:
             "SouthPolarStereo",
         ]
         | None = None,
-        map_theme: MapThemeName = "default",
         cmap: str | Colormap | None = None,
         norm: Normalize | None = None,
         vmin: float | None = None,
@@ -845,7 +847,6 @@ class GeoPlot:
         interactive_backend(interactive)
 
         options = resolve_options(
-            map_theme=map_theme,
             method=method,
             colorbar_style=colorbar_style,
             features=features,
@@ -853,241 +854,248 @@ class GeoPlot:
             clabel=clabel,
             map_ticks=map_ticks,
             cbar_ticks=cbar_ticks,
-            significance=significance,
-            vectors=vectors,
         )
-        style = options.colorbar_style
-        drawedges = True if method == "contourf" else style.drawedges
-        map_options = options.features
+        significance = Significance.coerce(significance)
+        vectors = VectorField.coerce(vectors)
+        #: rc parameters of the map theme. Every method that draws or adds a layer
+        #: runs under ``plt.rc_context(self.rc)``, so a later colorbar or quiver key
+        #: matches the plot even after ``set_options`` has changed.
+        self.rc: Mapping[str, Any] = options.rc
+        with plt.rc_context(self.rc):
+            style = options.colorbar_style
+            drawedges = True if method == "contourf" else style.drawedges
+            map_options = options.features
 
-        self.title = "" if title is None else title
-        self.data, self.x, self.y, self.col, self.row = norm_input(
-            da,
-            x=x,
-            y=y,
-            col=col,
-            row=row,
-            col_wrap=col_wrap,
-            cyclic=cyclic,
-        )
-        self.method = method
-        self.cyclic = cyclic
-        self.projection_object, self.projection = get_projection(
-            projection,
-            self.data[self.x],
-            self.data[self.y],
-        )
-        self.layers: list[dict[str, Any]] = []
-        self.map_features: list[Artist] = []
-        self.contour_labels: list[Text] | list[list[Text]] = []
-        self.colorbar: Colorbar | None = None
-        self.quiver: Quiver | list[Quiver] | None = None
-        self.quiver_key: QuiverKey | None = None
-        #: Scientific-notation limits shared by the colorbar and the quiver key.
-        self.powerlimits: tuple[int, int] = style.powerlimits
-        #: Colorbar styling; ``Adder.colorbar`` falls back to its advanced fields.
-        self.colorbar_style: ColorbarStyle = style
-        self.faceted_plot: FacetedPlot | None = None
-        self.grid: xr.Dataset = self.data.coords.to_dataset()[[self.x, self.y]]
-        self.add = Adder(self)
-
-        cmap_params = resolve_cmap_params(
-            vmin,
-            vmax,
-            levels,
-            cmap,
-            self.data,
-            robust=robust,
-            extend=extend,
-            norm=norm,
-            symmetrical=symmetrical,
-            zero_white=zero_white,
-            discrete=drawedges and method != "contourf",
-        )
-        self.vmin = cmap_params.vmin
-        self.vmax = cmap_params.vmax
-        self.levels = cmap_params.levels
-        self.cmap = cmap_params.cmap
-        self.norm = cmap_params.norm
-        self.extend = cmap_params.extend
-        self.zero_white = zero_white
-
-        # An explicit norm owns the color limits.
-        if self.norm is not None:
-            self.vmin = self.norm.vmin
-            self.vmax = self.norm.vmax
-
-        if self.is_faceted:
-            facet = FacetedPlot(
-                self.data,
-                x=self.x,
-                y=self.y,
-                col=self.col,
-                row=self.row,
+            self.title = "" if title is None else title
+            self.data, self.x, self.y, self.col, self.row = norm_input(
+                da,
+                x=x,
+                y=y,
+                col=col,
+                row=row,
                 col_wrap=col_wrap,
-                projection=self.projection_object,
-                figsize=figsize,
-                sharex=sharex,
-                sharey=sharey,
-                features=map_options,
-                map_ticks=options.map_ticks,
+                cyclic=cyclic,
             )
-            self.faceted_plot = facet
-            self.figure = facet.figure
-            self.axes: AxesType | np.ndarray = facet.axes
-            self.artist: ScalarPrimitive | list[ScalarPrimitive] = facet.render(
-                method=method,
-                cmap=self.cmap,
-                norm=self.norm,
-                vmin=self.vmin,
-                vmax=self.vmax,
-                levels=self.levels,
-                extend=self.extend,
-                robust=robust,
-                rasterized=rasterized,
-                hillshade=options.hillshade,
-                contour_labels=options.contour_labels,
-                interactive=interactive,
-                **kwargs,
+            self.method = method
+            self.cyclic = cyclic
+            self.projection_object, self.projection = get_projection(
+                projection,
+                self.data[self.x],
+                self.data[self.y],
             )
-            self.contour_labels = facet.contour_labels
-            self.map_features = facet.map_features
+            self.layers: list[dict[str, Any]] = []
+            self.map_features: list[Artist] = []
+            self.contour_labels: list[Text] | list[list[Text]] = []
+            self.colorbar: Colorbar | None = None
+            self.quiver: Quiver | list[Quiver] | None = None
+            self.quiver_key: QuiverKey | None = None
+            #: Scientific-notation limits shared by the colorbar and the quiver key.
+            self.powerlimits: tuple[int, int] = style.powerlimits
+            #: Colorbar styling; ``Adder.colorbar`` falls back to its advanced fields.
+            self.colorbar_style: ColorbarStyle = style
+            self.faceted_plot: FacetedPlot | None = None
+            self.grid: xr.Dataset = self.data.coords.to_dataset()[[self.x, self.y]]
+            self.add = Adder(self)
 
-            title = (
-                {"label": self.title}
-                if isinstance(self.title, str)
-                else dict(self.title)
+            cmap_params = resolve_cmap_params(
+                vmin,
+                vmax,
+                levels,
+                cmap,
+                self.data,
+                robust=robust,
+                extend=extend,
+                norm=norm,
+                symmetrical=symmetrical,
+                zero_white=zero_white,
+                discrete=drawedges and method != "contourf",
             )
-            self.figure.suptitle(title.pop("label", ""), **title)
-        else:
-            self.figure, axes_array = create_figure(
-                projection=self.projection_object,
-                figsize=figsize,
-                nrows=1,
-                ncols=1,
-                squeeze=False,
-            )
-            axis = axes_array[0, 0]
-            self.axes = axis
-            self.map_features = add_map_features(
-                self.figure,
-                axis,
-                set_extent=map_options.extent,
-                **map_options.feature_arguments(),
-            )
-            if options.map_ticks is not None:
-                add_xy_ticks(
-                    self.figure,
-                    axis,
-                    self.grid,
+            self.vmin = cmap_params.vmin
+            self.vmax = cmap_params.vmax
+            self.levels = cmap_params.levels
+            self.cmap = cmap_params.cmap
+            self.norm = cmap_params.norm
+            self.extend = cmap_params.extend
+            self.zero_white = zero_white
+
+            # An explicit norm owns the color limits.
+            if self.norm is not None:
+                self.vmin = self.norm.vmin
+                self.vmax = self.norm.vmax
+
+            if self.is_faceted:
+                facet = FacetedPlot(
+                    self.data,
                     x=self.x,
                     y=self.y,
-                    **options.map_ticks.tick_arguments(),
+                    col=self.col,
+                    row=self.row,
+                    col_wrap=col_wrap,
+                    projection=self.projection_object,
+                    figsize=figsize,
+                    sharex=sharex,
+                    sharey=sharey,
+                    features=map_options,
+                    map_ticks=options.map_ticks,
                 )
-            self.artist = plot_field(
-                method,
-                self.data,
-                self.figure,
-                axis,
-                x=self.x,
-                y=self.y,
-                cmap=self.cmap,
-                norm=self.norm,
-                vmin=self.vmin,
-                vmax=self.vmax,
-                levels=self.levels,
-                extend=self.extend,
-                robust=robust,
-                rasterized=rasterized,
-                hillshade=options.hillshade,
-                **kwargs,
-            )
-
-            if map_options.grid_bounds:
-                add_grid_boundary(
-                    axis,
-                    self.grid[self.x].values,
-                    self.grid[self.y].values,
-                    transform=ccrs.PlateCarree(),
-                    **map_options.boundary_arguments(),
+                self.faceted_plot = facet
+                self.figure = facet.figure
+                self.axes: AxesType | np.ndarray = facet.axes
+                self.artist: ScalarPrimitive | list[ScalarPrimitive] = facet.render(
+                    method=method,
+                    cmap=self.cmap,
+                    norm=self.norm,
+                    vmin=self.vmin,
+                    vmax=self.vmax,
+                    levels=self.levels,
+                    extend=self.extend,
+                    robust=robust,
+                    rasterized=rasterized,
+                    hillshade=options.hillshade,
+                    contour_labels=options.contour_labels,
+                    interactive=interactive,
+                    **kwargs,
                 )
+                self.contour_labels = facet.contour_labels
+                self.map_features = facet.map_features
 
-            if (
-                options.contour_labels is not None
-                and method == "contour"
-                and isinstance(self.artist, QuadContourSet)
-            ):
-                self.contour_labels = add_contour_labels(
+                title = (
+                    {"label": self.title}
+                    if isinstance(self.title, str)
+                    else dict(self.title)
+                )
+                self.figure.suptitle(title.pop("label", ""), **title)
+            else:
+                self.figure, axes_array = create_figure(
+                    projection=self.projection_object,
+                    figsize=figsize,
+                    nrows=1,
+                    ncols=1,
+                    squeeze=False,
+                )
+                axis = axes_array[0, 0]
+                self.axes = axis
+                self.map_features = add_map_features(
                     self.figure,
                     axis,
-                    self.artist,
-                    **options.contour_labels.arguments(),
+                    set_extent=map_options.extent,
+                    **map_options.feature_arguments(),
+                )
+                if options.map_ticks is not None:
+                    add_xy_ticks(
+                        self.figure,
+                        axis,
+                        self.grid,
+                        x=self.x,
+                        y=self.y,
+                        **options.map_ticks.tick_arguments(),
+                    )
+                self.artist = plot_field(
+                    method,
+                    self.data,
+                    self.figure,
+                    axis,
+                    x=self.x,
+                    y=self.y,
+                    cmap=self.cmap,
+                    norm=self.norm,
+                    vmin=self.vmin,
+                    vmax=self.vmax,
+                    levels=self.levels,
+                    extend=self.extend,
+                    robust=robust,
+                    rasterized=rasterized,
+                    hillshade=options.hillshade,
+                    **kwargs,
                 )
 
-            title = (
-                {"label": self.title}
-                if isinstance(self.title, str)
-                else dict(self.title)
+                if map_options.grid_bounds:
+                    add_grid_boundary(
+                        axis,
+                        self.grid[self.x].values,
+                        self.grid[self.y].values,
+                        transform=ccrs.PlateCarree(),
+                        **map_options.boundary_arguments(),
+                    )
+
+                if (
+                    options.contour_labels is not None
+                    and method == "contour"
+                    and isinstance(self.artist, QuadContourSet)
+                ):
+                    self.contour_labels = add_contour_labels(
+                        self.figure,
+                        axis,
+                        self.artist,
+                        **options.contour_labels.arguments(),
+                    )
+
+                title = (
+                    {"label": self.title}
+                    if isinstance(self.title, str)
+                    else dict(self.title)
+                )
+                axis.set_title(title.pop("label", ""), **title)
+
+            self.layers.append(
+                {
+                    "kind": method,
+                    "artists": self.base_artists,
+                    "labels": self.contour_labels,
+                    "base": True,
+                }
             )
-            axis.set_title(title.pop("label", ""), **title)
+            if significance is not None:
+                self.add.significance(
+                    significance.pvalues,
+                    **significance.arguments(exclude=("pvalues",)),
+                )
+            if vectors is not None:
+                u_component, v_component = validate_vector_components(
+                    vectors.u, vectors.v
+                )
+                self.add.quiver(
+                    u_component,
+                    v_component,
+                    **vectors.style(),
+                )  # an unset powerlimits falls back to ColorbarStyle.powerlimits
+            if colorbar and method != "contour":
+                label = colorbar_label
+                if label is None:
+                    long_name = str(self.data.attrs.get("long_name", "")).title()
+                    inferred_units = units or self.data.attrs.get(
+                        "units", self.data.name
+                    )
+                    label = f"{long_name}\n[{inferred_units}]".strip()
+                resolved_orientation = colorbar_orientation or "vertical"
 
-        self.layers.append(
-            {
-                "kind": method,
-                "artists": self.base_artists,
-                "labels": self.contour_labels,
-                "base": True,
-            }
-        )
-        if options.significance is not None:
-            self.add.significance(
-                options.significance.pvalues,
-                **options.significance.arguments(exclude=("pvalues",)),
-            )
-        if options.vectors is not None:
-            u_component, v_component = validate_vector_components(
-                options.vectors.u, options.vectors.v
-            )
-            self.add.quiver(
-                u_component,
-                v_component,
-                **options.vectors.style(),
-            )  # an unset powerlimits falls back to ColorbarStyle.powerlimits
-        if colorbar and method != "contour":
-            label = colorbar_label
-            if label is None:
-                long_name = str(self.data.attrs.get("long_name", "")).title()
-                inferred_units = units or self.data.attrs.get("units", self.data.name)
-                label = f"{long_name}\n[{inferred_units}]".strip()
-            resolved_orientation = colorbar_orientation or "vertical"
+                self.colorbar = primitives.colorbar(
+                    self.mappable,
+                    ax=self.axes,
+                    fig=self.figure,
+                    orientation=resolved_orientation,
+                    subplots=self.is_faceted,
+                    adjust=False,
+                    pad_bottom=True if self.quiver_key is not None else None,
+                    drawedges=drawedges,
+                    extend=self.extend,
+                    label=label,
+                    ticks=style.ticks,
+                    tick_labels=style.tick_labels,
+                    minimal_ticks=style.minimal_ticks,
+                    zero_white=self.zero_white,
+                    scalar_formatter=style.scalar_formatter,
+                    powerlimits=style.powerlimits,
+                    **style.advanced_arguments(),
+                )
 
-            self.colorbar = primitives.colorbar(
-                self.mappable,
-                ax=self.axes,
-                fig=self.figure,
-                orientation=resolved_orientation,
-                subplots=self.is_faceted,
-                adjust=False,
-                pad_bottom=True if self.quiver_key is not None else None,
-                drawedges=drawedges,
-                extend=self.extend,
-                label=label,
-                ticks=style.ticks,
-                tick_labels=style.tick_labels,
-                minimal_ticks=style.minimal_ticks,
-                zero_white=self.zero_white,
-                scalar_formatter=style.scalar_formatter,
-                powerlimits=style.powerlimits,
-                **style.advanced_arguments(),
-            )
+            self.figure.canvas.draw()
 
-        self.figure.canvas.draw()
+            if interactive:
+                for ax, _ in self.iter_axes():
+                    enable_interactive_features(ax)
 
-        if interactive:
-            for ax, _ in self.iter_axes():
-                enable_interactive_features(ax)
-
-        self.figure.canvas.draw_idle()
+            self.figure.canvas.draw_idle()
 
     @property
     def is_faceted(self) -> bool:
@@ -1271,60 +1279,63 @@ class Adder:
         GeoPlot
             Parent plot.
         """
-        params = dict(arguments)
-        params.pop("self")
-        data = params.pop("data")
-        kwargs = params.pop("kwargs")
-        x = params.pop("x", None) or self._plot.x
-        y = params.pop("y", None) or self._plot.y
-        params = {name: value for name, value in params.items() if value is not None}
-        label_options = ContourLabels.coerce(params.pop("clabel", False))
-        params.update(kwargs)
+        with plt.rc_context(self._plot.rc):
+            params = dict(arguments)
+            params.pop("self")
+            data = params.pop("data")
+            kwargs = params.pop("kwargs")
+            x = params.pop("x", None) or self._plot.x
+            y = params.pop("y", None) or self._plot.y
+            params = {
+                name: value for name, value in params.items() if value is not None
+            }
+            label_options = ContourLabels.coerce(params.pop("clabel", False))
+            params.update(kwargs)
 
-        points = isinstance(data, tuple)
-        if points:
-            if len(data) != 2:
+            points = isinstance(data, tuple)
+            if points:
+                if len(data) != 2:
+                    raise TypeError(
+                        "data must be an xarray.DataArray or an (x, y) tuple of numpy arrays"
+                    )
+                if not all(isinstance(values, np.ndarray) for values in data):
+                    raise TypeError("tuple data must contain two numpy.ndarray objects")
+                if data[0].shape != data[1].shape:
+                    raise ValueError("scatter x and y arrays must have matching shapes")
+                for name in ("hue", "markersize", "add_labels"):
+                    params.pop(name, None)
+            elif isinstance(data, xr.DataArray):
+                data = self._normalized(data)
+                params.update(x=x, y=y)
+            else:
                 raise TypeError(
                     "data must be an xarray.DataArray or an (x, y) tuple of numpy arrays"
                 )
-            if not all(isinstance(values, np.ndarray) for values in data):
-                raise TypeError("tuple data must contain two numpy.ndarray objects")
-            if data[0].shape != data[1].shape:
-                raise ValueError("scatter x and y arrays must have matching shapes")
-            for name in ("hue", "markersize", "add_labels"):
-                params.pop(name, None)
-        elif isinstance(data, xr.DataArray):
-            data = self._normalized(data)
-            params.update(x=x, y=y)
-        else:
-            raise TypeError(
-                "data must be an xarray.DataArray or an (x, y) tuple of numpy arrays"
-            )
 
-        artists: list[ScalarPrimitive] = []
-        labels: list[list[Text]] = []
-        for axis, selector in self._plot.iter_axes():
-            artist = plot_field(
-                kind,
-                data if points else self._plot.select(data, selector),
-                self._plot.figure,
-                axis,
-                **params,
-            )
-            artists.append(artist)
-            if label_options is not None:
-                labels.append(
-                    add_contour_labels(
-                        self._plot.figure,
-                        axis,
-                        artist,
-                        **label_options.arguments(),
-                    )
+            artists: list[ScalarPrimitive] = []
+            labels: list[list[Text]] = []
+            for axis, selector in self._plot.iter_axes():
+                artist = plot_field(
+                    kind,
+                    data if points else self._plot.select(data, selector),
+                    self._plot.figure,
+                    axis,
+                    **params,
                 )
-        self._plot.register_layer(
-            kind, artists, labels=labels if kind == "contour" else None
-        )
-        return self._plot
+                artists.append(artist)
+                if label_options is not None:
+                    labels.append(
+                        add_contour_labels(
+                            self._plot.figure,
+                            axis,
+                            artist,
+                            **label_options.arguments(),
+                        )
+                    )
+            self._plot.register_layer(
+                kind, artists, labels=labels if kind == "contour" else None
+            )
+            return self._plot
 
     def plot(
         self,
@@ -1735,57 +1746,58 @@ class Adder:
         GeoPlot
             Parent plot.
         """
-        if powerlimits is None:
-            powerlimits = self._plot.powerlimits
-        u = self._normalized(u)
-        v = self._normalized(v)
-        validated_u, validated_v = validate_vector_components(u, v)
-        assert validated_u is not None and validated_v is not None
-        if add_key and key_magnitude is None:
-            key_magnitude = get_quiver_key_mag(validated_u, validated_v)
-        if cmap is not None:
-            magnitude = np.hypot(validated_u, validated_v)
-            vmin = 0.0 if vmin is None else vmin
-            vmax = float(magnitude.max()) if vmax is None else vmax
-        key_axis = (
-            self._plot.faceted_plot.bottom_left_axis()
-            if self._plot.faceted_plot is not None
-            else next(self._plot.iter_axes())[0]
-        )
-
-        artists: list[Quiver] = []
-        keys: list[QuiverKey | None] = []
-        for axis, selector in self._plot.iter_axes():
-            quiver_artist, quiver_key = plot_quiver(
-                self._plot.select(validated_u, selector),
-                self._plot.select(validated_v, selector),
-                self._plot.figure,
-                axis,
-                x=x or self._plot.x,
-                y=y or self._plot.y,
-                subsample=subsample,
-                add_key=add_key and axis is key_axis,
-                key_magnitude=key_magnitude,
-                key_units=key_units,
-                powerlimits=powerlimits,
-                scale=scale,
-                color=color,
-                width=width,
-                zorder=zorder,
-                cmap=cmap,
-                vmin=vmin,
-                vmax=vmax,
-                key_color=key_color,
-                key_align=key_align,
-                **kwargs,
+        with plt.rc_context(self._plot.rc):
+            if powerlimits is None:
+                powerlimits = self._plot.powerlimits
+            u = self._normalized(u)
+            v = self._normalized(v)
+            validated_u, validated_v = validate_vector_components(u, v)
+            assert validated_u is not None and validated_v is not None
+            if add_key and key_magnitude is None:
+                key_magnitude = get_quiver_key_mag(validated_u, validated_v)
+            if cmap is not None:
+                magnitude = np.hypot(validated_u, validated_v)
+                vmin = 0.0 if vmin is None else vmin
+                vmax = float(magnitude.max()) if vmax is None else vmax
+            key_axis = (
+                self._plot.faceted_plot.bottom_left_axis()
+                if self._plot.faceted_plot is not None
+                else next(self._plot.iter_axes())[0]
             )
 
-            artists.append(quiver_artist)
-            keys.append(quiver_key)
-        self._plot.quiver = artists if self._plot.is_faceted else artists[0]
-        self._plot.quiver_key = next((key for key in keys if key is not None), None)
-        self._plot.register_layer("quiver", artists, keys=keys)
-        return self._plot
+            artists: list[Quiver] = []
+            keys: list[QuiverKey | None] = []
+            for axis, selector in self._plot.iter_axes():
+                quiver_artist, quiver_key = plot_quiver(
+                    self._plot.select(validated_u, selector),
+                    self._plot.select(validated_v, selector),
+                    self._plot.figure,
+                    axis,
+                    x=x or self._plot.x,
+                    y=y or self._plot.y,
+                    subsample=subsample,
+                    add_key=add_key and axis is key_axis,
+                    key_magnitude=key_magnitude,
+                    key_units=key_units,
+                    powerlimits=powerlimits,
+                    scale=scale,
+                    color=color,
+                    width=width,
+                    zorder=zorder,
+                    cmap=cmap,
+                    vmin=vmin,
+                    vmax=vmax,
+                    key_color=key_color,
+                    key_align=key_align,
+                    **kwargs,
+                )
+
+                artists.append(quiver_artist)
+                keys.append(quiver_key)
+            self._plot.quiver = artists if self._plot.is_faceted else artists[0]
+            self._plot.quiver_key = next((key for key in keys if key is not None), None)
+            self._plot.register_layer("quiver", artists, keys=keys)
+            return self._plot
 
     def significance(
         self,
@@ -1917,43 +1929,44 @@ class Adder:
         GeoPlot
             Parent plot.
         """
-        given = ColorbarStyle.coerce(style)
-        chosen = (
-            replace(self._plot.colorbar_style, **given.arguments())
-            if given is not None
-            else self._plot.colorbar_style
-        )
-        colorbar = primitives.colorbar(
-            mappable or self._plot.mappable,
-            ax=self._plot.axes,
-            fig=self._plot.figure,
-            orientation=orientation,
-            subplots=self._plot.is_faceted,
-            pad_bottom=True if self._plot.quiver_key is not None else None,
-            drawedges=chosen.drawedges if drawedges is None else drawedges,
-            extend=extend,
-            label=label,
-            ticks=chosen.ticks if ticks is None else ticks,
-            tick_labels=chosen.tick_labels if tick_labels is None else tick_labels,
-            minimal_ticks=(
-                chosen.minimal_ticks if minimal_ticks is None else minimal_ticks
-            ),
-            zero_white=self._plot.zero_white,
-            scalar_formatter=(
-                chosen.scalar_formatter
-                if scalar_formatter is None
-                else scalar_formatter
-            ),
-            powerlimits=(
-                (chosen.powerlimits if given else self._plot.powerlimits)
-                if powerlimits is None
-                else powerlimits
-            ),
-            **chosen.advanced_arguments(),
-        )
-        self._plot.colorbar = colorbar
-        self._plot.register_layer("colorbar", [colorbar])
-        return self._plot
+        with plt.rc_context(self._plot.rc):
+            given = ColorbarStyle.coerce(style)
+            chosen = (
+                replace(self._plot.colorbar_style, **given.arguments())
+                if given is not None
+                else self._plot.colorbar_style
+            )
+            colorbar = primitives.colorbar(
+                mappable or self._plot.mappable,
+                ax=self._plot.axes,
+                fig=self._plot.figure,
+                orientation=orientation,
+                subplots=self._plot.is_faceted,
+                pad_bottom=True if self._plot.quiver_key is not None else None,
+                drawedges=chosen.drawedges if drawedges is None else drawedges,
+                extend=extend,
+                label=label,
+                ticks=chosen.ticks if ticks is None else ticks,
+                tick_labels=chosen.tick_labels if tick_labels is None else tick_labels,
+                minimal_ticks=(
+                    chosen.minimal_ticks if minimal_ticks is None else minimal_ticks
+                ),
+                zero_white=self._plot.zero_white,
+                scalar_formatter=(
+                    chosen.scalar_formatter
+                    if scalar_formatter is None
+                    else scalar_formatter
+                ),
+                powerlimits=(
+                    (chosen.powerlimits if given else self._plot.powerlimits)
+                    if powerlimits is None
+                    else powerlimits
+                ),
+                **chosen.advanced_arguments(),
+            )
+            self._plot.colorbar = colorbar
+            self._plot.register_layer("colorbar", [colorbar])
+            return self._plot
 
     def grid_boundary(
         self,
@@ -2016,6 +2029,7 @@ def plot_animation_frame(
     )
 
     options = dict(geo_options)
+    map_options = options.pop("map_options")
     vector_style = options.pop("vector_style", None)
     significance_style = options.pop("significance_style", None)
     options["da"] = data
@@ -2030,7 +2044,9 @@ def plot_animation_frame(
         else Significance(pvalues=pvalues, **(significance_style or {}))
     )
     options["title"] = fmt_title
-    plot = GeoPlot(**options)
+    # Frames render in worker processes that do not inherit set_options.
+    with set_options(**map_options):
+        plot = GeoPlot(**options)
     filename = session_tmp_dir / f"{frame_number:06d}.png"
     plot.figure.savefig(filename, dpi=dpi, bbox_inches="tight")
     plot.figure.clear()
@@ -2061,8 +2077,6 @@ class Animate:
         Base scalar plot method.
     projection : {"PlateCarree", "Mercator", "Robinson", "Mollweide", "Orthographic", "LambertConformal", "AlbersEqualArea", "Stereographic", "NorthPolarStereo", "SouthPolarStereo"}, optional
         Display projection.
-    map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
-        Cartopy-only style preset. Explicit option groups override preset values.
     cmap, norm, vmin, vmax, levels, extend : optional
         Base scalar styling.
     robust, rasterized : bool, default False
@@ -2171,7 +2185,6 @@ class Animate:
             "SouthPolarStereo",
         ]
         | None = None,
-        map_theme: MapThemeName = "default",
         cmap: str | Colormap | None = None,
         norm: Normalize | None = None,
         vmin: float | None = None,
@@ -2274,6 +2287,8 @@ class Animate:
             magnitude = np.hypot(self.u_component, self.v_component)
             vector_style = {"vmin": 0.0, "vmax": float(magnitude.max())} | vector_style
         self.geo_options["vector_style"] = vector_style
+        # Snapshot of set_options, restored in each frame's worker process.
+        self.geo_options["map_options"] = get_options()
         # pvalues is selected per frame; only its styling is shared.
         self.geo_options["significance_style"] = (
             None
@@ -2464,7 +2479,6 @@ def geoplot(
         "SouthPolarStereo",
     ]
     | None = None,
-    map_theme: MapThemeName = "default",
     cmap: str | Colormap | None = None,
     norm: Normalize | None = None,
     vmin: float | None = None,
@@ -2514,8 +2528,6 @@ def geoplot(
         Base scalar plotting method.
     projection : {"PlateCarree", "Mercator", "Robinson", "Mollweide", "Orthographic", "LambertConformal", "AlbersEqualArea", "Stereographic", "NorthPolarStereo", "SouthPolarStereo"}, optional
         Display projection.
-    map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
-        Cartopy-only style preset. Explicit option groups override preset values.
     cmap, norm, vmin, vmax, units, levels, extend : optional
         Base scalar and colorbar configuration.
     robust, rasterized : bool, default False
@@ -2604,7 +2616,6 @@ def animate(
         "SouthPolarStereo",
     ]
     | None = None,
-    map_theme: MapThemeName = "default",
     cmap: str | Colormap | None = None,
     norm: Normalize | None = None,
     vmin: float | None = None,
@@ -2655,8 +2666,6 @@ def animate(
         Per-frame scalar plot type.
     projection : {"PlateCarree", "Mercator", "Robinson", "Mollweide", "Orthographic", "LambertConformal", "AlbersEqualArea", "Stereographic", "NorthPolarStereo", "SouthPolarStereo"}, optional
         Per-frame display projection.
-    map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
-        Cartopy-only style preset. Explicit option groups override preset values.
     cmap, norm, vmin, vmax, units, levels, extend : optional
         Per-frame scalar styling.
     robust, rasterized : bool, default False

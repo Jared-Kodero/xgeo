@@ -5,9 +5,11 @@ The top level holds only the light shared utilities: ``LockedLogger``,
 ``nproc``. Everything else is reached through its module:
 
 - ``plot``      Cartopy map plotting. Entry point :func:`xgeo.plot.geoplot`.
+                Standing style defaults: :func:`xgeo.plot.set_options`.
+                The data layers ``VectorField`` and ``Significance`` live here.
 - ``plot_options``  Option groups for ``geoplot`` and ``animate``:
   ``Hillshade``, ``MapFeatures``, ``MapTicks``, ``ColorbarStyle``,
-  ``ContourLabels``, ``Significance`` and ``VectorField``, used as
+  ``ContourLabels`` and ``MapTheme``, used as
   ``xgeo.plot_options.Hillshade(...)``.
 - ``cmaps``     Colormap registry spanning local IPCC tables, matplotlib,
   and cmocean.

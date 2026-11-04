@@ -23,15 +23,13 @@ if TYPE_CHECKING:
     from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize
     from matplotlib.contour import QuadContourSet
 
+    from ..viz.layers import Significance, VectorField
     from ..viz.options import (
         ColorbarStyle,
         ContourLabels,
         Hillshade,
         MapFeatures,
-        MapThemeName,
         MapTicks,
-        Significance,
-        VectorField,
     )
     from ..viz.plot import GeoPlot
 
@@ -373,7 +371,6 @@ class GeoDataArray(GeoBase):
             "SouthPolarStereo",
         ]
         | None = None,
-        map_theme: MapThemeName = "default",
         cmap: str | LinearSegmentedColormap | ListedColormap | None = None,
         norm: Normalize | None = None,
         vmin: float | None = None,
@@ -419,8 +416,6 @@ class GeoDataArray(GeoBase):
             Xarray plot method.
         projection : str, optional
             Cartopy projection name.
-        map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
-            Cartopy-only map style preset. Explicit grouped options override it.
         cmap : str or matplotlib colormap, optional
             Colormap for the scalar field.
         norm : matplotlib.colors.Normalize, optional
@@ -519,7 +514,6 @@ class GeoDataArray(GeoBase):
             "SouthPolarStereo",
         ]
         | None = None,
-        map_theme: MapThemeName = "default",
         cmap: str | LinearSegmentedColormap | ListedColormap | None = None,
         norm: Normalize | None = None,
         vmin: float | None = None,
@@ -572,8 +566,6 @@ class GeoDataArray(GeoBase):
             Xarray plot method.
         projection : str, optional
             Cartopy projection name.
-        map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
-            Cartopy-only map style preset. Explicit grouped options override it.
         cmap : str or matplotlib colormap, optional
             Colormap for the scalar field.
         norm : matplotlib.colors.Normalize, optional

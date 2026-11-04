@@ -8,23 +8,43 @@ IDE can complete the fields::
     da.xgeo.geoplot(hillshade=True)
     da.xgeo.geoplot(hillshade=Hillshade(azimuth=270, vert_exag=2))
     da.xgeo.geoplot(features=MapFeatures(states=False, lakes=True))
-    da.xgeo.geoplot(vectors=VectorField(u=u, v=v, color="k", subsample=(4, 4)))
+    da.xgeo.geoplot(hillshade=True, clabel=True)
 
 Grouped parameters accept only an option instance, ``None`` and, where a
 default group exists, a bool. Plain dictionaries are not accepted. All fields
 are keyword-only, named and typed; no class accepts open-ended keyword
 arguments.
+
+Fields of :class:`MapFeatures`, :class:`MapTicks` and :class:`ColorbarStyle`
+default to ``None``, meaning "not set". Resolution layers them, later layers
+winning: class defaults, the :class:`MapTheme` preset, :func:`set_options`, and
+the keyword given in the plotting call. A field a user does not set therefore
+never overrides the preset.
+
+Standing, style-only defaults are set once with :func:`set_options`, either
+globally or for a ``with`` block::
+
+    xgeo.plot.set_options(map_theme="ncl")
+    with xgeo.plot.set_options(map_theme="gmt", features=MapFeatures(lakes=True)):
+        xgeo.plot.geoplot(da)
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, field, fields, replace
 from numbers import Integral
-from typing import TYPE_CHECKING, Any, Literal, Self
-
-import xarray as xr
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Literal,
+    Self,
+    TypedDict,
+    Unpack,
+    get_args,
+)
 
 if TYPE_CHECKING:
     from matplotlib.colors import Colormap
@@ -37,17 +57,31 @@ __all__ = [
     "MapTheme",
     "MapThemeName",
     "MapTicks",
+    "Options",
     "ResolvedOptions",
-    "Significance",
-    "VectorField",
+    "get_options",
+    "map_rc",
     "resolve_options",
+    "set_options",
 ]
 
 
-class _Option:
+class Option:
     """Shared construction logic for option dataclasses."""
 
     __slots__ = ()
+
+    #: Values of the fields that default to ``None`` ("not set").
+    DEFAULTS: ClassVar[Mapping[str, Any]] = {}
+
+    @classmethod
+    def defaults(cls) -> Self:
+        """Return the instance with every field at its documented default."""
+        return cls(**cls.DEFAULTS)
+
+    def over(self, other: Self | None) -> Self:
+        """Return a copy with the fields that ``other`` sets applied on top."""
+        return self if other is None else replace(self, **other.arguments())
 
     @classmethod
     def coerce(cls, value: bool | Self | None) -> Self | None:
@@ -86,7 +120,7 @@ class _Option:
         }
 
 
-def _check_powerlimits(value: Sequence[int]) -> None:
+def check_powerlimits(value: Sequence[int]) -> None:
     """Raise ``ValueError`` unless ``value`` is ``(lower, upper)`` with lower <= upper.
 
     Both exponents must be integers; booleans are rejected because ``True`` would
@@ -106,7 +140,7 @@ def _check_powerlimits(value: Sequence[int]) -> None:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class Hillshade(_Option):
+class Hillshade(Option):
     """Grayscale relief drawn beneath a scalar field.
 
     Parameters
@@ -211,7 +245,7 @@ class Hillshade(_Option):
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class ContourLabels(_Option):
+class ContourLabels(Option):
     """Line-contour label settings.
 
     Parameters
@@ -253,10 +287,11 @@ class ContourLabels(_Option):
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class MapTicks(_Option):
+class MapTicks(Option):
     """Longitude and latitude tick settings.
 
-    Fields left as ``None`` use the default given below.
+    Fields left as ``None`` are not set: they take the :class:`MapTheme` preset
+    value or, failing that, the default given below.
 
     Parameters
     ----------
@@ -296,8 +331,10 @@ class MapTicks(_Option):
     The ``gridline_*`` fields take effect only when ``gridlines`` is true.
     """
 
-    xbins: int = 5
-    ybins: int = 5
+    DEFAULTS: ClassVar[Mapping[str, Any]] = {"xbins": 5, "ybins": 5}
+
+    xbins: int | None = None
+    ybins: int | None = None
     direction: Literal["out", "in", "inout"] | None = None
     minor_ticks: bool | None = None
     major_tick_length: float | None = None
@@ -323,6 +360,14 @@ class MapTicks(_Option):
             "inout",
         ):
             raise ValueError("direction must be 'out', 'in' or 'inout'")
+        for name in ("xbins", "ybins"):
+            value = getattr(self, name)
+            if value is not None and not (
+                isinstance(value, Integral)
+                and not isinstance(value, bool)
+                and value > 0
+            ):
+                raise ValueError(f"{name} must be a positive integer")
         for name in (
             "major_tick_length",
             "major_tick_width",
@@ -352,8 +397,11 @@ class MapTicks(_Option):
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class ColorbarStyle(_Option):
+class ColorbarStyle(Option):
     """Colorbar styling beyond ``colorbar``, ``colorbar_label`` and ``colorbar_orientation``.
+
+    Fields left as ``None`` are not set: they take the :class:`MapTheme` preset
+    value or, failing that, the default given below.
 
     Parameters
     ----------
@@ -403,10 +451,17 @@ class ColorbarStyle(_Option):
         labels. Unchanged when omitted.
     """
 
-    drawedges: bool = True
-    minimal_ticks: bool = True
-    scalar_formatter: bool = True
-    powerlimits: tuple[int, int] = (-3, 3)
+    DEFAULTS: ClassVar[Mapping[str, Any]] = {
+        "drawedges": True,
+        "minimal_ticks": True,
+        "scalar_formatter": True,
+        "powerlimits": (-3, 3),
+    }
+
+    drawedges: bool | None = None
+    minimal_ticks: bool | None = None
+    scalar_formatter: bool | None = None
+    powerlimits: tuple[int, int] | None = None
     ticks: Sequence[float] | None = None
     tick_labels: Sequence[str] | None = None
     thickness: float | None = None
@@ -421,7 +476,8 @@ class ColorbarStyle(_Option):
     ticks_visible: bool | None = None
 
     def __post_init__(self) -> None:
-        _check_powerlimits(self.powerlimits)
+        if self.powerlimits is not None:
+            check_powerlimits(self.powerlimits)
         for name in (
             "linewidth",
             "major_tick_length",
@@ -471,8 +527,11 @@ class ColorbarStyle(_Option):
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class MapFeatures(_Option):
+class MapFeatures(Option):
     """Cartopy map features, extent and grid outline.
+
+    Fields left as ``None`` are not set: they take the :class:`MapTheme` preset
+    value or, failing that, the default given below.
 
     Parameters
     ----------
@@ -554,16 +613,28 @@ class MapFeatures(_Option):
         Drawing order of the ``grid_bounds`` outline. Default 1.
     """
 
-    coastlines: bool = True
-    borders: bool = True
-    states: bool = True
-    ocean: bool = True
-    land: bool = True
-    lakes: bool = False
-    rivers: bool = False
-    global_extent: bool = False
+    DEFAULTS: ClassVar[Mapping[str, Any]] = {
+        "coastlines": True,
+        "borders": True,
+        "states": True,
+        "ocean": True,
+        "land": True,
+        "lakes": False,
+        "rivers": False,
+        "global_extent": False,
+        "grid_bounds": False,
+    }
+
+    coastlines: bool | None = None
+    borders: bool | None = None
+    states: bool | None = None
+    ocean: bool | None = None
+    land: bool | None = None
+    lakes: bool | None = None
+    rivers: bool | None = None
+    global_extent: bool | None = None
     extent: tuple[float, float, float, float] | None = None
-    grid_bounds: bool = False
+    grid_bounds: bool | None = None
     resolution: Literal["110m", "50m", "10m"] | None = None
     coastline_color: str | None = None
     coastline_linewidth: float | None = None
@@ -652,7 +723,8 @@ class MapFeatures(_Option):
         return {name: value for name, value in names.items() if value is not None}
 
 
-type MapThemeName = Literal["default", "ncl", "publication", "minimal"]
+type MapThemeName = Literal["default", "ncl", "ferret", "grads", "gmt"]
+_HELVETICA = {"font.family": ["Liberation Sans", "Arial", "Helvetica", "DejaVu Sans"]}
 
 
 @dataclass(frozen=True, slots=True)
@@ -660,13 +732,17 @@ class MapTheme:
     """Cartopy-only feature, tick and colorbar style presets.
 
     Explicit :class:`MapFeatures`, :class:`MapTicks`, and :class:`ColorbarStyle`
-    values override preset fields. The colorbar orientation remains vertical
-    unless set separately in the plotting call.
+    values override preset fields. ``rc`` holds Matplotlib rc parameters that are
+    applied only while a plot is built and drawn, then restored. No font is
+    downloaded or installed: ``font.family`` is a fallback list that Matplotlib
+    resolves against the installed fonts. The colorbar remains vertical unless
+    set separately.
     """
 
     features: MapFeatures
     ticks: MapTicks | None
     colorbar: ColorbarStyle
+    rc: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def default(cls) -> Self:
@@ -702,51 +778,100 @@ class MapTheme:
                 edgecolor="0.2",
                 ticks_visible=False,
             ),
+            rc=_HELVETICA,
         )
 
     @classmethod
-    def publication(cls) -> Self:
-        """Use restrained dark-gray outlines and outward major ticks."""
+    def ferret(cls) -> Self:
+        """Use Ferret-inspired geographic axes and simple coastal outlines."""
         return cls(
             MapFeatures(
-                linewidth=0.7,
-                edgecolor="0.25",
-                coastline_linewidth=0.45,
-                coastline_color="0.3",
-                boundary_linewidth=0.4,
-                boundary_color="0.5",
+                linewidth=0.8,
+                edgecolor="0.2",
+                coastline_linewidth=0.7,
+                coastline_color="0.2",
+                borders=False,
+                states=False,
             ),
             MapTicks(
                 direction="out",
                 minor_ticks=False,
                 major_tick_length=5.0,
-                major_tick_width=0.65,
+                major_tick_width=0.75,
                 top_ticks=False,
                 right_ticks=False,
+                degree_symbol="°",
+                direction_label=True,
             ),
             ColorbarStyle(
                 linewidth=0.6,
-                edgecolor="0.25",
+                edgecolor="0.2",
+                ticks_visible=False,
             ),
         )
 
     @classmethod
-    def minimal(cls) -> Self:
-        """Use light fine map outlines without geographic ticks."""
+    def grads(cls) -> Self:
+        """Use GrADS-inspired meteorological map outlines and axis ticks."""
         return cls(
             MapFeatures(
-                linewidth=0.5,
-                edgecolor="0.5",
-                coastline_linewidth=0.3,
-                coastline_color="0.55",
-                boundary_linewidth=0.3,
-                boundary_color="0.65",
+                linewidth=1.0,
+                edgecolor="0.1",
+                coastline_linewidth=0.85,
+                coastline_color="0.15",
+                boundary_linewidth=0.5,
+                boundary_color="0.4",
+                states=False,
             ),
-            None,
+            MapTicks(
+                direction="out",
+                minor_ticks=False,
+                major_tick_length=4.5,
+                major_tick_width=0.9,
+                top_ticks=False,
+                right_ticks=False,
+                degree_symbol="°",
+                direction_label=True,
+            ),
             ColorbarStyle(
-                linewidth=0.5,
-                edgecolor="0.5",
+                linewidth=0.8,
+                edgecolor="0.1",
+                ticks_visible=False,
             ),
+        )
+
+    @classmethod
+    def gmt(cls) -> Self:
+        """Use GMT-inspired four-sided geographic annotations and ticks."""
+        return cls(
+            MapFeatures(
+                linewidth=1.2,
+                edgecolor="0.1",
+                coastline_linewidth=0.7,
+                coastline_color="0.1",
+                borders=False,
+                states=False,
+            ),
+            MapTicks(
+                direction="out",
+                minor_ticks=True,
+                major_tick_length=6.0,
+                major_tick_width=0.9,
+                minor_tick_length=3.0,
+                minor_tick_width=0.6,
+                top_ticks=True,
+                right_ticks=True,
+                top_labels=True,
+                right_labels=True,
+                degree_symbol="°",
+                direction_label=True,
+            ),
+            ColorbarStyle(
+                linewidth=0.8,
+                edgecolor="0.1",
+                ticks_visible=True,
+            ),
+            rc=_HELVETICA,
         )
 
     @classmethod
@@ -757,222 +882,137 @@ class MapTheme:
                 return cls.default()
             case "ncl":
                 return cls.ncl()
-            case "publication":
-                return cls.publication()
-            case "minimal":
-                return cls.minimal()
+            case "ferret":
+                return cls.ferret()
+            case "grads":
+                return cls.grads()
+            case "gmt":
+                return cls.gmt()
             case _:
                 raise ValueError(f"unknown map_theme: {name!r}")
 
 
-@dataclass(frozen=True, kw_only=True, slots=True, eq=False)
-class Significance(_Option):
-    """Pointwise significance markers.
+class Options(TypedDict, total=False):
+    """Keys accepted by :func:`set_options`."""
+
+    map_theme: MapThemeName | MapTheme
+    features: MapFeatures | None
+    colorbar_style: ColorbarStyle | None
+    map_ticks: MapTicks | None
+    rc: Mapping[str, Any]
+
+
+OPTIONS: dict[str, Any] = {
+    "map_theme": "default",
+    "features": None,
+    "colorbar_style": None,
+    "map_ticks": None,
+    "rc": {},
+}
+
+_VALIDATORS: dict[str, Any] = {
+    "map_theme": lambda value: (
+        isinstance(value, MapTheme) or value in get_args(MapThemeName.__value__)
+    ),
+    "features": lambda value: value is None or isinstance(value, MapFeatures),
+    "colorbar_style": lambda value: value is None or isinstance(value, ColorbarStyle),
+    "map_ticks": lambda value: value is None or isinstance(value, MapTicks),
+    "rc": lambda value: isinstance(value, Mapping),
+}
+
+
+class set_options:
+    """Set standing plot options, globally or for a ``with`` block.
+
+    The options are style defaults that are independent of the data. A keyword
+    given in a plotting call overrides them; they override the theme preset.
+    Options are read when a plot is created, so a block only affects plots
+    created inside it. Used as a function, the new values stay in force until
+    changed again.
 
     Parameters
     ----------
-    pvalues : xarray.DataArray
-        Pointwise p-values on the plotted grid.
-    level : float or None, default 0.05
-        Markers are drawn where ``pvalues`` is below this threshold. ``None``
-        marks every point.
-    color : str, default "grey"
-        Marker face color.
-    alpha : float, default 0.3
-        Marker opacity, in [0, 1].
-    marker : str, optional
-        Matplotlib marker style.
-    edgecolors : str, optional
-        Marker-edge color.
-    subsample : int or tuple of int, default (1, 1)
-        Spatial stride used to thin the markers, as ``(x, y)`` or one value for
-        both directions.
-    size : float, default 0.25
-        Marker area in points squared.
-    zorder : float, default 3.0
-        Drawing order.
-    hatch : str, optional
-        Matplotlib hatch pattern, for example ``"///"`` or ``".."``. The
-        significant region is then filled with hatching, drawn in ``color`` (or
-        ``edgecolors`` when given) with the opacity ``alpha``, instead of
-        markers. ``marker`` and ``size`` are ignored.
+    map_theme : {"default", "ncl", "ferret", "grads", "gmt"} or MapTheme
+        Style preset. Pass a :class:`MapTheme` for a custom preset, for example
+        ``dataclasses.replace(MapTheme.ncl(), rc={"font.family": "serif"})``.
+    features : MapFeatures or None
+        Default map features, applied over the preset.
+    colorbar_style : ColorbarStyle or None
+        Default colorbar styling, applied over the preset.
+    map_ticks : MapTicks or None
+        Default geographic ticks, applied over the preset. ``None`` keeps the
+        preset's ticks.
+    rc : mapping
+        Matplotlib rc parameters applied only while a plot is built, drawn or
+        extended, then restored. They override the preset's ``rc``.
+
+    Examples
+    --------
+    >>> xgeo.plot.set_options(map_theme="ncl")
+    >>> with xgeo.plot.set_options(map_theme="gmt"):
+    ...     xgeo.plot.geoplot(da)
     """
 
-    pvalues: xr.DataArray
-    level: float | None = 0.05
-    color: str = "grey"
-    alpha: float = 0.3
-    marker: str | None = None
-    edgecolors: str | None = None
-    subsample: int | tuple[int, int] = (1, 1)
-    size: float = 0.25
-    zorder: float = 3.0
-    hatch: str | None = None
+    def __init__(self, **options: Unpack[Options]) -> None:
+        unknown = options.keys() - OPTIONS.keys()
+        if unknown:
+            raise ValueError(
+                f"unknown option(s) {sorted(unknown)}; valid options are "
+                f"{sorted(OPTIONS)}"
+            )
+        for key, value in options.items():
+            if not _VALIDATORS[key](value):
+                raise ValueError(f"invalid value for option {key!r}: {value!r}")
+        self.old = {key: OPTIONS[key] for key in options}
+        OPTIONS.update(options)
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.pvalues, xr.DataArray):
-            raise TypeError("pvalues must be an xarray.DataArray")
-        if self.hatch is not None and not isinstance(self.hatch, str):
-            raise TypeError("hatch must be a string")
-        if self.level is not None and not 0.0 <= self.level <= 1.0:
-            raise ValueError("level must be None or lie in [0, 1]")
-        if not 0.0 <= self.alpha <= 1.0:
-            raise ValueError("alpha must lie in [0, 1]")
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        OPTIONS.update(self.old)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True, eq=False)
-class VectorField(_Option):
-    """Vector components drawn as a quiver layer.
+def get_options() -> dict[str, Any]:
+    """Return a copy of the options currently set by :func:`set_options`."""
+    return dict(OPTIONS)
 
-    Parameters
-    ----------
-    u, v : xarray.DataArray
-        Zonal and meridional components. For animations they must contain the
-        animation dimension.
-    subsample : int or tuple of int, default (1, 1)
-        Spatial stride used to thin the arrows, as ``(x, y)`` or one value for
-        both directions.
-    add_key : bool, default True
-        Add one shared reference key.
-    key_magnitude : float, optional
-        Reference magnitude of the key. Chosen from the data when omitted.
-    key_units : str, optional
-        Units appended to the key label.
-    powerlimits : tuple of int, optional
-        Decimal exponents ``(lower, upper)`` outside which the key magnitude is
-        written in scientific notation, formatted by the same
-        ``ScalarFormatter`` as the colorbar. Defaults to
-        ``ColorbarStyle.powerlimits`` (``(-3, 3)`` unless changed).
-    scale : float, optional
-        Data units per arrow length unit (see ``scale_units``). Larger values
-        give shorter arrows.
-    scale_units : {"width", "height", "dots", "inches", "x", "y", "xy"}, optional
-        Unit of arrow length for ``scale``.
-    units : {"width", "height", "dots", "inches", "x", "y", "xy"}, optional
-        Unit of the arrow width and head dimensions.
-    color : str, optional
-        Arrow color.
-    width : float, optional
-        Arrow-shaft width in ``units``.
-    headwidth, headlength, headaxislength : float, optional
-        Arrow-head width, length and axis length in multiples of the shaft
-        width.
-    minshaft, minlength : float, optional
-        Length below which an arrow is drawn with a shrunken head, and below
-        which it is drawn as a dot, in multiples of the head length and shaft
-        width.
-    pivot : {"tail", "mid", "middle", "tip"}, optional
-        Arrow anchor on its grid point.
-    alpha : float, optional
-        Arrow opacity, in [0, 1].
-    zorder : float, default 4.0
-        Drawing order.
-    angles : {"uv", "xy"}, optional
-        Arrow direction convention of :meth:`matplotlib.axes.Axes.quiver`.
-        ``"xy"`` points arrows from each grid point toward the next in data
-        coordinates, which keeps them tangent to the map on a projected axis.
-        Default ``"xy"``.
-    key_fontsize : float, optional
-        Font size of the quiver-key label in points. Default 10.
-    key_gap : float, optional
-        Gap in points between the quiver key and the lowest axis decoration
-        above it. Default 4.
-    cmap : str or matplotlib.colors.Colormap, optional
-        Color the arrows by vector magnitude with this colormap instead of a
-        single ``color``; the two are mutually exclusive. The arrows are
-        a scalar mappable, so ``plot.add.colorbar(plot.quiver)`` adds a
-        colorbar (for a faceted plot pass one element of ``plot.quiver``).
-    vmin, vmax : float, optional
-        Magnitude limits of ``cmap``. Default to 0 and the largest magnitude of
-        the plotted field, shared by every panel and animation frame.
-    key_color : str, optional
-        Color of the quiver-key arrow and label. Black when omitted.
-    key_align : {"left", "center", "right"}, optional
-        Horizontal alignment of the quiver key along the lower edge of the
-        axes. Default ``"left"``. The vertical position stays automatic, below
-        the axis decorations.
+
+def map_rc() -> dict[str, Any]:
+    """Return the rc parameters of the current theme, then ``set_options(rc=...)``.
+
+    A ``font.family`` list is cut to the families that are installed, so a
+    preset's preference list never makes Matplotlib warn about a missing font.
     """
+    theme = OPTIONS["map_theme"]
+    theme = MapTheme.from_name(theme) if isinstance(theme, str) else theme
+    rc = {**theme.rc, **OPTIONS["rc"]}
+    family = rc.get("font.family")
+    if isinstance(family, list):
+        from matplotlib import font_manager
 
-    u: xr.DataArray
-    v: xr.DataArray
-    subsample: int | tuple[int, int] = (1, 1)
-    add_key: bool = True
-    key_magnitude: float | None = None
-    key_units: str | None = None
-    powerlimits: tuple[int, int] | None = None
-    scale: float | None = None
-    scale_units: Literal["width", "height", "dots", "inches", "x", "y", "xy"] | None = (
-        None
-    )
-    units: Literal["width", "height", "dots", "inches", "x", "y", "xy"] | None = None
-    color: str | None = None
-    width: float | None = None
-    headwidth: float | None = None
-    headlength: float | None = None
-    headaxislength: float | None = None
-    minshaft: float | None = None
-    minlength: float | None = None
-    pivot: Literal["tail", "mid", "middle", "tip"] | None = None
-    alpha: float | None = None
-    zorder: float = 4.0
-    angles: Literal["uv", "xy"] | None = None
-    key_fontsize: float | None = None
-    key_gap: float | None = None
-    cmap: str | Colormap | None = None
-    vmin: float | None = None
-    vmax: float | None = None
-    key_color: str | None = None
-    key_align: Literal["left", "center", "right"] | None = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.u, xr.DataArray) or not isinstance(self.v, xr.DataArray):
-            raise TypeError("u and v must be xarray.DataArray objects")
-        if self.alpha is not None and not 0.0 <= self.alpha <= 1.0:
-            raise ValueError("alpha must lie in [0, 1]")
-        if self.powerlimits is not None:
-            _check_powerlimits(self.powerlimits)
-        if self.angles is not None and self.angles not in ("uv", "xy"):
-            raise ValueError("angles must be 'uv' or 'xy'")
-        if self.key_fontsize is not None and not (
-            math.isfinite(self.key_fontsize) and self.key_fontsize > 0.0
-        ):
-            raise ValueError("key_fontsize must be positive and finite")
-        if self.key_gap is not None and not (
-            math.isfinite(self.key_gap) and self.key_gap >= 0.0
-        ):
-            raise ValueError("key_gap must be non-negative and finite")
-        if self.cmap is not None and self.color is not None:
-            raise ValueError("cmap and color are mutually exclusive")
-        if self.vmin is not None and self.vmax is not None and self.vmin >= self.vmax:
-            raise ValueError("vmin must be smaller than vmax")
-        if self.key_align is not None and self.key_align not in (
-            "left",
-            "center",
-            "right",
-        ):
-            raise ValueError("key_align must be 'left', 'center' or 'right'")
-
-    def style(self) -> dict[str, Any]:
-        """Return every non-``None`` field except the components ``u`` and ``v``."""
-        return self.arguments(exclude=("u", "v"))
+        available = {font.name for font in font_manager.fontManager.ttflist}
+        generic = {"serif", "sans-serif", "monospace", "cursive", "fantasy"}
+        rc["font.family"] = [
+            name for name in family if name in available or name in generic
+        ]
+    return rc
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ResolvedOptions:
-    """Grouped options after coercion. ``None`` marks a disabled optional group."""
+    """Grouped options after layering. ``None`` marks a disabled optional group."""
 
     colorbar_style: ColorbarStyle
     features: MapFeatures
     hillshade: Hillshade | None
     contour_labels: ContourLabels | None
     map_ticks: MapTicks | None
-    significance: Significance | None
-    vectors: VectorField | None
+    rc: Mapping[str, Any]
 
 
 def resolve_options(
     *,
-    map_theme: MapThemeName,
     method: Literal[
         "default", "pcolormesh", "contourf", "contour", "imshow", "scatter"
     ],
@@ -982,36 +1022,42 @@ def resolve_options(
     clabel: bool | ContourLabels,
     map_ticks: bool | MapTicks | None,
     cbar_ticks: bool | None,
-    significance: Significance | None,
-    vectors: VectorField | None,
 ) -> ResolvedOptions:
-    """Resolve named Cartopy presets, then apply explicit per-group overrides.
+    """Layer class defaults, the theme preset, :func:`set_options` and the call.
 
-    ``map_ticks=None`` inherits the preset; ``False`` disables ticks and
-    ``True`` enables the preset's ticks (or the standard MapTicks defaults).
+    Later layers win. ``map_ticks=None`` inherits the preset and the
+    ``set_options`` ticks, ``False`` disables geographic ticks and ``True``
+    enables them with the preset's settings or, for the default theme, the
+    :class:`MapTicks` defaults.
     """
-    preset = MapTheme.from_name(map_theme)
+    theme = OPTIONS["map_theme"]
+    preset = MapTheme.from_name(theme) if isinstance(theme, str) else theme
     resolved_features = (
-        replace(preset.features, **features.arguments())
-        if features is not None
-        else preset.features
+        MapFeatures.defaults()
+        .over(preset.features)
+        .over(OPTIONS["features"])
+        .over(features)
     )
     resolved_colorbar = (
-        replace(preset.colorbar, **colorbar_style.arguments())
-        if colorbar_style is not None
-        else preset.colorbar
+        ColorbarStyle.defaults()
+        .over(preset.colorbar)
+        .over(OPTIONS["colorbar_style"])
+        .over(colorbar_style)
     )
     if cbar_ticks is not None:
         resolved_colorbar = replace(resolved_colorbar, ticks_visible=cbar_ticks)
+    inherited_ticks = (
+        None
+        if preset.ticks is None and OPTIONS["map_ticks"] is None
+        else MapTicks.defaults().over(preset.ticks).over(OPTIONS["map_ticks"])
+    )
     if map_ticks is False:
         resolved_ticks = None
     elif map_ticks is None:
-        resolved_ticks = preset.ticks
+        resolved_ticks = inherited_ticks
     else:
-        given_ticks = MapTicks.coerce(map_ticks)
-        resolved_ticks = replace(
-            preset.ticks or MapTicks(),
-            **(given_ticks.arguments() if isinstance(map_ticks, MapTicks) else {}),
+        resolved_ticks = (inherited_ticks or MapTicks.defaults()).over(
+            MapTicks.coerce(map_ticks)
         )
 
     contour_labels = ContourLabels.coerce(clabel)
@@ -1023,6 +1069,5 @@ def resolve_options(
         hillshade=Hillshade.coerce(hillshade),
         contour_labels=contour_labels,
         map_ticks=resolved_ticks,
-        significance=Significance.coerce(significance),
-        vectors=VectorField.coerce(vectors),
+        rc=map_rc(),
     )

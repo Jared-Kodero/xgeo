@@ -54,10 +54,33 @@ Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection
 | `map_ticks` | `MapTicks` | `xbins`, `ybins`; advanced: `direction`, `minor_ticks`, `degree_symbol`, `direction_label`, `top_labels`, `right_labels`, `gridlines`, `gridline_color`, `gridline_linestyle`, `gridline_linewidth`, `gridline_alpha` |
 | `clabel` | `ContourLabels` | `fmt`, `fontsize`, `inline`, `colors`, `levels`, `inline_spacing`, `rightside_up`, `use_clabeltext`, `manual`, `zorder` |
 | `hillshade` | `Hillshade` | `vert_exag`, `azimuth`, `altitude`, `alpha`, `field_alpha`, `cmap`, `spacing`, `method`, `levels`, `vmin`, `vmax`, `fraction`, `zorder_offset`, `rasterized` |
-| `significance` | `Significance` | `pvalues`, `level`, `color`, `alpha`, `marker`, `edgecolors`, `subsample`, `size`, `zorder`, `hatch` |
-| `vectors` | `VectorField` | `u`, `v`, `subsample`, `add_key`, `key_magnitude`, `key_units`, `powerlimits`, `scale`, `scale_units`, `units`, `color`, `width`, `headwidth`, `headlength`, `headaxislength`, `minshaft`, `minlength`, `pivot`, `alpha`, `zorder`, `angles`, `key_fontsize`, `key_gap`, `cmap`, `vmin`, `vmax`, `key_color`, `key_align` |
+| `significance` | `xg.plot.Significance` | `pvalues`, `level`, `color`, `alpha`, `marker`, `edgecolors`, `subsample`, `size`, `zorder`, `hatch` |
+| `vectors` | `xg.plot.VectorField` | `u`, `v`, `subsample`, `add_key`, `key_magnitude`, `key_units`, `powerlimits`, `scale`, `scale_units`, `units`, `color`, `width`, `headwidth`, `headlength`, `headaxislength`, `minshaft`, `minlength`, `pivot`, `alpha`, `zorder`, `angles`, `key_fontsize`, `key_gap`, `cmap`, `vmin`, `vmax`, `key_color`, `key_align` |
 
-The fields marked advanced, and the `None`-valued fields of `VectorField`, keep the plotting defaults when left unset, so existing calls are unchanged.
+`VectorField` and `Significance` carry data (the vector components, the p-values) rather than options, so they are `xg.plot.VectorField` and `xg.plot.Significance`, not part of `xg.plot_options`. The fields marked advanced, and the `None`-valued fields of `VectorField`, keep the plotting defaults when left unset, so existing calls are unchanged.
+
+Fields of `MapFeatures`, `MapTicks` and `ColorbarStyle` default to `None`, meaning "not set". Values are layered, later layers winning: the class defaults, the map theme preset, `set_options`, then the keyword in the plotting call. A field you do not set therefore never overrides the theme, so `MapFeatures(lakes=True)` leaves `borders=False` of the `ferret`, `grads` and `gmt` themes in place.
+
+### Standing options
+
+Style defaults that do not depend on the data are set once with `xg.plot.set_options`, globally or for a `with` block, in the manner of `xarray.set_options`. There is no `map_theme` keyword in `geoplot` or `animate`.
+
+```python
+xg.plot.set_options(map_theme="ncl")            # until changed again
+
+with xg.plot.set_options(map_theme="gmt", features=xg.plot_options.MapFeatures(lakes=True)):
+    xg.plot.geoplot(da)                         # gmt theme, lakes on
+
+xg.plot.get_options()                           # current values
+```
+
+| Option | Value | Effect |
+| --- | --- | --- |
+| `map_theme` | `"default"`, `"ncl"`, `"ferret"`, `"grads"`, `"gmt"` or a `MapTheme` | Style preset. A `MapTheme` is a custom preset, for example `dataclasses.replace(xg.plot_options.MapTheme.ncl(), rc={"font.family": "serif"})`. |
+| `features`, `colorbar_style`, `map_ticks` | option instance or `None` | Standing defaults applied over the preset and overridden by the plotting call. |
+| `rc` | mapping | Matplotlib rc parameters applied only while a plot is built or extended (`plot.add.*`), then restored. They override the preset's `rc`. |
+
+The `ncl` and `gmt` presets request a Helvetica-like font through a `font.family` list (Liberation Sans, Arial, Helvetica, DejaVu Sans). Only installed families are used and nothing is downloaded. A plot keeps the rc parameters it was created with, so a colorbar added later matches the plot even if `set_options` has changed since. `animate` carries the current options into its worker processes.
 
 The `states_*` and `borders_*` fields style the two boundary layers separately and fall back to the shared `boundary_*` value when `None`. `gridline_*` apply when `gridlines` is true. `Significance(hatch="///")` replaces stippling with a hatch drawn over the region where `pvalues < level` (all non-missing `pvalues` when `level` is `None`); `color` and `edgecolors` set the hatch colour and `marker`, `size` and `subsample` are then ignored. `VectorField(cmap=...)` colours the arrows by magnitude on a normalisation shared by all panels and frames (`vmin` defaults to 0, `vmax` to the maximum magnitude), is mutually exclusive with `color`, and gives a mappable for `plot.add.colorbar(plot.quiver)`. `key_color` sets the key arrow and label colour and `key_align` (`"left"`, `"center"` or `"right"`) its horizontal position under the axes.
 
@@ -73,12 +96,12 @@ ds["topo"].xgeo.geoplot(
 t2m.xgeo.geoplot(
     method="contour",
     clabel=xg.plot_options.ContourLabels(fmt="%.1f", fontsize=7),
-    vectors=xg.plot_options.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), color="k"),
+    vectors=xg.plot.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), color="k"),
 )
 plot = t2m.xgeo.geoplot(
     map_ticks=xg.plot_options.MapTicks(gridlines=True, gridline_color="k", gridline_alpha=0.3),
-    significance=xg.plot_options.Significance(pvalues=pval, level=0.05, hatch="///"),
-    vectors=xg.plot_options.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), cmap="viridis"),
+    significance=xg.plot.Significance(pvalues=pval, level=0.05, hatch="///"),
+    vectors=xg.plot.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), cmap="viridis"),
 )
 plot.add.colorbar(plot.quiver, label="m s-1", style=xg.plot_options.ColorbarStyle(thickness=0.03))
 ```

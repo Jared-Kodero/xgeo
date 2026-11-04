@@ -741,6 +741,9 @@ class GeoPlot:
         fields.
     map_ticks : bool, MapTicks or None, default None
         Inherit the theme's geographic ticks; ``False`` disables them.
+    cbar_ticks : bool, optional
+        Show colorbar tick marks. ``None`` inherits the theme, which hides them
+        for ``default`` and ``ncl``.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers.
         Marker styling fields are documented on :class:`Significance`.
@@ -830,6 +833,7 @@ class GeoPlot:
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
         map_ticks: bool | MapTicks | None = None,
+        cbar_ticks: bool | None = None,
         significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
@@ -848,6 +852,7 @@ class GeoPlot:
             hillshade=hillshade,
             clabel=clabel,
             map_ticks=map_ticks,
+            cbar_ticks=cbar_ticks,
             significance=significance,
             vectors=vectors,
         )
@@ -2087,6 +2092,9 @@ class Animate:
         fields.
     map_ticks : bool, MapTicks or None, default None
         Inherit the theme's geographic ticks; ``False`` disables them.
+    cbar_ticks : bool, optional
+        Show colorbar tick marks. ``None`` inherits the theme, which hides them
+        for ``default`` and ``ncl``.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers or
         hatching. ``pvalues`` must contain the animation dimension and is
@@ -2182,6 +2190,7 @@ class Animate:
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
         map_ticks: bool | MapTicks | None = None,
+        cbar_ticks: bool | None = None,
         significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
@@ -2474,6 +2483,7 @@ def geoplot(
     colorbar_style: ColorbarStyle | None = None,
     features: MapFeatures | None = None,
     map_ticks: bool | MapTicks | None = None,
+    cbar_ticks: bool | None = None,
     significance: Significance | None = None,
     vectors: VectorField | None = None,
     clabel: bool | ContourLabels = False,
@@ -2533,6 +2543,9 @@ def geoplot(
         fields.
     map_ticks : bool, MapTicks or None, default None
         Inherit the theme's geographic ticks; ``False`` disables them.
+    cbar_ticks : bool, optional
+        Show colorbar tick marks. ``None`` inherits the theme, which hides them
+        for ``default`` and ``ncl``.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers.
         Marker styling fields are documented on :class:`Significance`.
@@ -2610,6 +2623,7 @@ def animate(
     colorbar_style: ColorbarStyle | None = None,
     features: MapFeatures | None = None,
     map_ticks: bool | MapTicks | None = None,
+    cbar_ticks: bool | None = None,
     significance: Significance | None = None,
     vectors: VectorField | None = None,
     clabel: bool | ContourLabels = False,
@@ -2672,6 +2686,9 @@ def animate(
         fields.
     map_ticks : bool, MapTicks or None, default None
         Inherit the theme's geographic ticks; ``False`` disables them.
+    cbar_ticks : bool, optional
+        Show colorbar tick marks. ``None`` inherits the theme, which hides them
+        for ``default`` and ``ncl``.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers or
         hatching. ``pvalues`` must contain the animation dimension and is

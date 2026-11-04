@@ -670,8 +670,8 @@ class MapTheme:
 
     @classmethod
     def default(cls) -> Self:
-        """Preserve the original plotting appearance and disabled map ticks."""
-        return cls(MapFeatures(), None, ColorbarStyle())
+        """Preserve the original plotting appearance, without colorbar ticks."""
+        return cls(MapFeatures(), None, ColorbarStyle(ticks_visible=False))
 
     @classmethod
     def ncl(cls) -> Self:
@@ -979,6 +979,7 @@ def resolve_options(
     hillshade: bool | Hillshade,
     clabel: bool | ContourLabels,
     map_ticks: bool | MapTicks | None,
+    cbar_ticks: bool | None,
     significance: Significance | None,
     vectors: VectorField | None,
 ) -> ResolvedOptions:
@@ -998,6 +999,8 @@ def resolve_options(
         if colorbar_style is not None
         else preset.colorbar
     )
+    if cbar_ticks is not None:
+        resolved_colorbar = replace(resolved_colorbar, ticks_visible=cbar_ticks)
     if map_ticks is False:
         resolved_ticks = None
     elif map_ticks is None:

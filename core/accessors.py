@@ -392,6 +392,7 @@ class GeoDataArray(GeoBase):
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
         map_ticks: bool | MapTicks | None = None,
+        cbar_ticks: bool | None = None,
         significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
@@ -456,6 +457,9 @@ class GeoDataArray(GeoBase):
             fields.
         map_ticks : bool, MapTicks or None, default None
             Inherit the selected theme's geographic ticks; ``False`` disables them.
+        cbar_ticks : bool, optional
+            Show colorbar tick marks. ``None`` inherits the theme, which hides them
+            for ``default`` and ``ncl``.
         significance : Significance, optional
             Pointwise p-values (``pvalues``) drawn as significance markers.
             Marker styling fields are documented on :class:`Significance`.
@@ -534,6 +538,7 @@ class GeoDataArray(GeoBase):
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
         map_ticks: bool | MapTicks | None = None,
+        cbar_ticks: bool | None = None,
         significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
@@ -607,6 +612,9 @@ class GeoDataArray(GeoBase):
             fields.
         map_ticks : bool, MapTicks or None, default None
             Inherit the selected theme's geographic ticks; ``False`` disables them.
+        cbar_ticks : bool, optional
+            Show colorbar tick marks. ``None`` inherits the theme, which hides them
+            for ``default`` and ``ncl``.
         significance : Significance, optional
             Pointwise p-values (``pvalues``) drawn as significance markers or
             hatching. ``pvalues`` must contain the animation dimension and is

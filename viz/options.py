@@ -694,6 +694,8 @@ class MapTheme:
                 minor_tick_width=0.5,
                 top_ticks=False,
                 right_ticks=True,
+                degree_symbol="°",
+                direction_label=True,
             ),
             ColorbarStyle(
                 linewidth=0.7,

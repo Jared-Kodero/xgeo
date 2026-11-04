@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import warnings
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -41,6 +42,7 @@ from .options import (
     ContourLabels,
     Hillshade,
     MapFeatures,
+    MapThemeName,
     MapTicks,
     Significance,
     VectorField,
@@ -698,6 +700,8 @@ class GeoPlot:
     projection : {"PlateCarree", "Mercator", "Robinson", "Mollweide", "Orthographic", "LambertConformal", "AlbersEqualArea", "Stereographic", "NorthPolarStereo", "SouthPolarStereo"}, optional
         Display projection. A domain-dependent projection is inferred when
         omitted.
+    map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
+        Cartopy-only style preset. Explicit option groups override preset values.
     cmap : str or matplotlib.colors.Colormap, optional
         Base colormap.
     norm : matplotlib.colors.Normalize, optional
@@ -735,8 +739,8 @@ class GeoPlot:
     features : MapFeatures, optional
         Map features, extent and grid outline; see :class:`MapFeatures` for all
         fields.
-    map_ticks : bool or MapTicks, default False
-        Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
+    map_ticks : bool, MapTicks or None, default None
+        Inherit the theme's geographic ticks; ``False`` disables them.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers.
         Marker styling fields are documented on :class:`Significance`.
@@ -807,6 +811,7 @@ class GeoPlot:
             "SouthPolarStereo",
         ]
         | None = None,
+        map_theme: MapThemeName = "default",
         cmap: str | Colormap | None = None,
         norm: Normalize | None = None,
         vmin: float | None = None,
@@ -824,7 +829,7 @@ class GeoPlot:
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
-        map_ticks: bool | MapTicks = False,
+        map_ticks: bool | MapTicks | None = None,
         significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
@@ -836,6 +841,7 @@ class GeoPlot:
         interactive_backend(interactive)
 
         options = resolve_options(
+            map_theme=map_theme,
             method=method,
             colorbar_style=colorbar_style,
             features=features,
@@ -1907,7 +1913,11 @@ class Adder:
             Parent plot.
         """
         given = ColorbarStyle.coerce(style)
-        chosen = given or ColorbarStyle()
+        chosen = (
+            replace(self._plot.colorbar_style, **given.arguments())
+            if given is not None
+            else self._plot.colorbar_style
+        )
         colorbar = primitives.colorbar(
             mappable or self._plot.mappable,
             ax=self._plot.axes,
@@ -1934,10 +1944,7 @@ class Adder:
                 if powerlimits is None
                 else powerlimits
             ),
-            **(
-                self._plot.colorbar_style.advanced_arguments()
-                | chosen.advanced_arguments()
-            ),
+            **chosen.advanced_arguments(),
         )
         self._plot.colorbar = colorbar
         self._plot.register_layer("colorbar", [colorbar])
@@ -2049,6 +2056,8 @@ class Animate:
         Base scalar plot method.
     projection : {"PlateCarree", "Mercator", "Robinson", "Mollweide", "Orthographic", "LambertConformal", "AlbersEqualArea", "Stereographic", "NorthPolarStereo", "SouthPolarStereo"}, optional
         Display projection.
+    map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
+        Cartopy-only style preset. Explicit option groups override preset values.
     cmap, norm, vmin, vmax, levels, extend : optional
         Base scalar styling.
     robust, rasterized : bool, default False
@@ -2076,8 +2085,8 @@ class Animate:
     features : MapFeatures, optional
         Map features, extent and grid outline; see :class:`MapFeatures` for all
         fields.
-    map_ticks : bool or MapTicks, default False
-        Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
+    map_ticks : bool, MapTicks or None, default None
+        Inherit the theme's geographic ticks; ``False`` disables them.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers or
         hatching. ``pvalues`` must contain the animation dimension and is
@@ -2154,6 +2163,7 @@ class Animate:
             "SouthPolarStereo",
         ]
         | None = None,
+        map_theme: MapThemeName = "default",
         cmap: str | Colormap | None = None,
         norm: Normalize | None = None,
         vmin: float | None = None,
@@ -2171,7 +2181,7 @@ class Animate:
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
-        map_ticks: bool | MapTicks = False,
+        map_ticks: bool | MapTicks | None = None,
         significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
@@ -2445,6 +2455,7 @@ def geoplot(
         "SouthPolarStereo",
     ]
     | None = None,
+    map_theme: MapThemeName = "default",
     cmap: str | Colormap | None = None,
     norm: Normalize | None = None,
     vmin: float | None = None,
@@ -2462,7 +2473,7 @@ def geoplot(
     colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
     colorbar_style: ColorbarStyle | None = None,
     features: MapFeatures | None = None,
-    map_ticks: bool | MapTicks = False,
+    map_ticks: bool | MapTicks | None = None,
     significance: Significance | None = None,
     vectors: VectorField | None = None,
     clabel: bool | ContourLabels = False,
@@ -2493,6 +2504,8 @@ def geoplot(
         Base scalar plotting method.
     projection : {"PlateCarree", "Mercator", "Robinson", "Mollweide", "Orthographic", "LambertConformal", "AlbersEqualArea", "Stereographic", "NorthPolarStereo", "SouthPolarStereo"}, optional
         Display projection.
+    map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
+        Cartopy-only style preset. Explicit option groups override preset values.
     cmap, norm, vmin, vmax, units, levels, extend : optional
         Base scalar and colorbar configuration.
     robust, rasterized : bool, default False
@@ -2518,8 +2531,8 @@ def geoplot(
     features : MapFeatures, optional
         Map features, extent and grid outline; see :class:`MapFeatures` for all
         fields.
-    map_ticks : bool or MapTicks, default False
-        Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
+    map_ticks : bool, MapTicks or None, default None
+        Inherit the theme's geographic ticks; ``False`` disables them.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers.
         Marker styling fields are documented on :class:`Significance`.
@@ -2578,6 +2591,7 @@ def animate(
         "SouthPolarStereo",
     ]
     | None = None,
+    map_theme: MapThemeName = "default",
     cmap: str | Colormap | None = None,
     norm: Normalize | None = None,
     vmin: float | None = None,
@@ -2595,7 +2609,7 @@ def animate(
     colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
     colorbar_style: ColorbarStyle | None = None,
     features: MapFeatures | None = None,
-    map_ticks: bool | MapTicks = False,
+    map_ticks: bool | MapTicks | None = None,
     significance: Significance | None = None,
     vectors: VectorField | None = None,
     clabel: bool | ContourLabels = False,
@@ -2627,6 +2641,8 @@ def animate(
         Per-frame scalar plot type.
     projection : {"PlateCarree", "Mercator", "Robinson", "Mollweide", "Orthographic", "LambertConformal", "AlbersEqualArea", "Stereographic", "NorthPolarStereo", "SouthPolarStereo"}, optional
         Per-frame display projection.
+    map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
+        Cartopy-only style preset. Explicit option groups override preset values.
     cmap, norm, vmin, vmax, units, levels, extend : optional
         Per-frame scalar styling.
     robust, rasterized : bool, default False
@@ -2654,8 +2670,8 @@ def animate(
     features : MapFeatures, optional
         Map features, extent and grid outline; see :class:`MapFeatures` for all
         fields.
-    map_ticks : bool or MapTicks, default False
-        Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
+    map_ticks : bool, MapTicks or None, default None
+        Inherit the theme's geographic ticks; ``False`` disables them.
     significance : Significance, optional
         Pointwise p-values (``pvalues``) drawn as significance markers or
         hatching. ``pvalues`` must contain the animation dimension and is

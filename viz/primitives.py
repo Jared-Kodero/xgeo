@@ -1059,6 +1059,12 @@ def add_xy_ticks(
     y: str = "lat",
     direction: Literal["out", "in", "inout"] = "out",
     minor_ticks: bool = False,
+    major_tick_length: float | None = None,
+    major_tick_width: float | None = None,
+    minor_tick_length: float | None = None,
+    minor_tick_width: float | None = None,
+    top_ticks: bool | None = None,
+    right_ticks: bool | None = None,
     degree_symbol: str = "",
     direction_label: bool = False,
     top_labels: bool = False,
@@ -1090,6 +1096,12 @@ def add_xy_ticks(
         Tick-mark direction.
     minor_ticks : bool, default False
         Show minor ticks.
+    major_tick_length, minor_tick_length : float, optional
+        Major and minor tick lengths in points.
+    major_tick_width, minor_tick_width : float, optional
+        Major and minor tick widths in points.
+    top_ticks, right_ticks : bool, optional
+        Enable tick marks on the corresponding map edges.
     degree_symbol : str, default ""
         Text appended to every tick label.
     direction_label : bool, default False
@@ -1124,7 +1136,28 @@ def add_xy_ticks(
         float(lat.min()), float(lat.max())
     )
 
-    ax.tick_params(axis="both", direction=direction, which="major")
+    ax.tick_params(
+        axis="both",
+        direction=direction,
+        which="major",
+        **is_defined(
+            length=major_tick_length,
+            width=major_tick_width,
+            top=top_ticks,
+            right=right_ticks,
+        ),
+    )
+    ax.tick_params(
+        axis="both",
+        direction=direction,
+        which="minor",
+        **is_defined(
+            length=minor_tick_length,
+            width=minor_tick_width,
+            top=top_ticks,
+            right=right_ticks,
+        ),
+    )
     if minor_ticks:
         ax.minorticks_on()
     else:
@@ -1182,6 +1215,8 @@ def add_map_features(
     resolution: Literal["110m", "50m", "10m"] | None = None,
     coastline_color: str | None = None,
     coastline_linewidth: float | None = None,
+    edgecolor: str | None = None,
+    linewidth: float | None = None,
     states_alpha: float = 0.3,
     borders_alpha: float = 0.3,
     boundary_linestyle: str = "-",
@@ -1233,6 +1268,10 @@ def add_map_features(
         Coastline color. Cartopy's default is used when omitted.
     coastline_linewidth : float, optional
         Coastline width in points.
+    edgecolor : str, optional
+        Map frame edge color. Unchanged when omitted.
+    linewidth : float, optional
+        Map frame spine width in points. Unchanged when omitted.
     states_alpha, borders_alpha : float, default 0.3
         Opacity of the state and country boundaries.
     boundary_linestyle : str, default "-"
@@ -1288,6 +1327,11 @@ def add_map_features(
 
     if not isinstance(ax, cgeo.GeoAxes):
         raise TypeError("map features require a cartopy.mpl.geoaxes.GeoAxes")
+    for spine in ax.spines.values():
+        if edgecolor is not None:
+            spine.set_edgecolor(edgecolor)
+        if linewidth is not None:
+            spine.set_linewidth(linewidth)
     if global_extent:
         ax.set_global()
     if set_extent is not None:
@@ -1917,6 +1961,11 @@ def colorbar(
     pad_with_labels: float | None = None,
     facet_length: float = 0.5,
     minimal_ticks_threshold: int = 6,
+    linewidth: float | None = None,
+    edgecolor: str | None = None,
+    major_tick_length: float | None = None,
+    major_tick_width: float | None = None,
+    ticks_visible: bool | None = None,
     zero_white: bool = False,
     **kwargs,
 ) -> Colorbar:
@@ -1980,6 +2029,14 @@ def colorbar(
     minimal_ticks_threshold : int, default 6
         Number of colour boundaries above which *minimal_ticks* thins the
         labels.
+    linewidth : float, optional
+        Colorbar outline width in points.
+    edgecolor : str, optional
+        Colorbar outline edge color.
+    major_tick_length, major_tick_width : float, optional
+        Colorbar major tick dimensions in points.
+    ticks_visible : bool, optional
+        ``False`` hides all tick marks, major and minor, and keeps the labels.
     zero_white : bool, default False
         Thin the ticks outward from zero so they stay symmetric when the zero
         boundary was removed by :func:`center_zero_white`.
@@ -2086,6 +2143,16 @@ def colorbar(
 
     if label is not None:
         colorbar.set_label(label)
+
+    if linewidth is not None:
+        colorbar.outline.set_linewidth(linewidth)
+    if edgecolor is not None:
+        colorbar.outline.set_edgecolor(edgecolor)
+    tick_style = is_defined(length=major_tick_length, width=major_tick_width)
+    if tick_style:
+        colorbar.ax.tick_params(which="major", **tick_style)
+    if ticks_visible is False:
+        colorbar.ax.tick_params(which="both", length=0)
 
     return colorbar
 

@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         ContourLabels,
         Hillshade,
         MapFeatures,
+        MapThemeName,
         MapTicks,
         Significance,
         VectorField,
@@ -372,6 +373,7 @@ class GeoDataArray(GeoBase):
             "SouthPolarStereo",
         ]
         | None = None,
+        map_theme: MapThemeName = "default",
         cmap: str | LinearSegmentedColormap | ListedColormap | None = None,
         norm: Normalize | None = None,
         vmin: float | None = None,
@@ -389,7 +391,7 @@ class GeoDataArray(GeoBase):
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
-        map_ticks: bool | MapTicks = False,
+        map_ticks: bool | MapTicks | None = None,
         significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
@@ -416,6 +418,8 @@ class GeoDataArray(GeoBase):
             Xarray plot method.
         projection : str, optional
             Cartopy projection name.
+        map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
+            Cartopy-only map style preset. Explicit grouped options override it.
         cmap : str or matplotlib colormap, optional
             Colormap for the scalar field.
         norm : matplotlib.colors.Normalize, optional
@@ -450,8 +454,8 @@ class GeoDataArray(GeoBase):
         features : MapFeatures, optional
             Map features, extent and grid outline; see :class:`MapFeatures` for all
             fields.
-        map_ticks : bool or MapTicks, default False
-            Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
+        map_ticks : bool, MapTicks or None, default None
+            Inherit the selected theme's geographic ticks; ``False`` disables them.
         significance : Significance, optional
             Pointwise p-values (``pvalues``) drawn as significance markers.
             Marker styling fields are documented on :class:`Significance`.
@@ -511,6 +515,7 @@ class GeoDataArray(GeoBase):
             "SouthPolarStereo",
         ]
         | None = None,
+        map_theme: MapThemeName = "default",
         cmap: str | LinearSegmentedColormap | ListedColormap | None = None,
         norm: Normalize | None = None,
         vmin: float | None = None,
@@ -528,7 +533,7 @@ class GeoDataArray(GeoBase):
         colorbar_orientation: Literal["vertical", "horizontal"] | None = None,
         colorbar_style: ColorbarStyle | None = None,
         features: MapFeatures | None = None,
-        map_ticks: bool | MapTicks = False,
+        map_ticks: bool | MapTicks | None = None,
         significance: Significance | None = None,
         vectors: VectorField | None = None,
         clabel: bool | ContourLabels = False,
@@ -562,6 +567,8 @@ class GeoDataArray(GeoBase):
             Xarray plot method.
         projection : str, optional
             Cartopy projection name.
+        map_theme : {"default", "ncl", "publication", "minimal"}, default "default"
+            Cartopy-only map style preset. Explicit grouped options override it.
         cmap : str or matplotlib colormap, optional
             Colormap for the scalar field.
         norm : matplotlib.colors.Normalize, optional
@@ -598,8 +605,8 @@ class GeoDataArray(GeoBase):
         features : MapFeatures, optional
             Map features, extent and grid outline; see :class:`MapFeatures` for all
             fields.
-        map_ticks : bool or MapTicks, default False
-            Draw longitude and latitude ticks; see :class:`MapTicks` for all fields.
+        map_ticks : bool, MapTicks or None, default None
+            Inherit the selected theme's geographic ticks; ``False`` disables them.
         significance : Significance, optional
             Pointwise p-values (``pvalues``) drawn as significance markers or
             hatching. ``pvalues`` must contain the animation dimension and is
@@ -645,72 +652,6 @@ class GeoDataArray(GeoBase):
         kwargs = opts.pop("kwargs")
 
         return plot.animate(self._obj, **opts, **kwargs)
-
-    def quiver(
-        self,
-        v: xr.DataArray,
-        *,
-        x: str = "lon",
-        y: str = "lat",
-        ax: Any = None,
-        subsample: int | tuple[int, int] = (1, 1),
-        add_key: bool = True,
-        key_magnitude: float | None = None,
-        key_units: str | None = None,
-        **kwargs: Any,
-    ) -> tuple[Any, Any, Any]:
-        """Draw quiver arrows, using the bound array as the zonal component.
-
-        The reference key is placed automatically below the axis decorations
-        (see :class:`xgeo.viz.primitives.AutoQuiverKey`).
-
-        Parameters
-        ----------
-        v : xarray.DataArray
-            Meridional component.
-        x, y : str, default "lon", "lat"
-            Horizontal coordinate names.
-        ax : matplotlib.axes.Axes, optional
-            Axis to draw on; the current axis when omitted.
-        subsample : int or tuple of int, default (1, 1)
-            Grid stride used to thin the arrows.
-        add_key : bool, default True
-            Draw a reference quiver key.
-        key_magnitude : int or float, optional
-            Reference arrow magnitude.
-        key_units : str, optional
-            Units shown on the key.
-        **kwargs : Any
-            Additional arguments forwarded to :func:`xgeo.viz.primitives.plot_quiver`
-            and from there to ``Axes.quiver``. These include ``cmap``, ``vmin``
-            and ``vmax`` (color the arrows by magnitude) and ``key_color`` and
-            ``key_align`` (style and align the key).
-
-        Returns
-        -------
-        tuple
-            ``(ax, quiver, quiver_key)``.
-
-        """
-        import matplotlib.pyplot as plt
-
-        from ..viz.primitives import plot_quiver
-
-        axis = plt.gca() if ax is None else ax
-        quiver, quiver_key = plot_quiver(
-            self._obj,
-            v,
-            axis.get_figure(),
-            axis,
-            x=x,
-            y=y,
-            subsample=subsample,
-            add_key=add_key,
-            key_magnitude=key_magnitude,
-            key_units=key_units,
-            **kwargs,
-        )
-        return axis, quiver, quiver_key
 
     def significance(
         self,

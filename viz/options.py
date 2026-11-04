@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from numbers import Integral
 from typing import TYPE_CHECKING, Any, Literal, Self
 
@@ -34,6 +34,8 @@ __all__ = [
     "ContourLabels",
     "Hillshade",
     "MapFeatures",
+    "MapTheme",
+    "MapThemeName",
     "MapTicks",
     "ResolvedOptions",
     "Significance",
@@ -264,6 +266,12 @@ class MapTicks(_Option):
         Tick-mark direction. Default ``"out"``.
     minor_ticks : bool, optional
         Show minor ticks. Default ``False``.
+    major_tick_length, minor_tick_length : float, optional
+        Tick lengths in points. Use Matplotlib defaults when omitted.
+    major_tick_width, minor_tick_width : float, optional
+        Tick widths in points. Use Matplotlib defaults when omitted.
+    top_ticks, right_ticks : bool, optional
+        Enable tick marks on the top and right edges when provided.
     degree_symbol : str, optional
         Text appended to every tick label. Default ``""``, so labels are plain
         signed numbers.
@@ -292,6 +300,12 @@ class MapTicks(_Option):
     ybins: int = 5
     direction: Literal["out", "in", "inout"] | None = None
     minor_ticks: bool | None = None
+    major_tick_length: float | None = None
+    major_tick_width: float | None = None
+    minor_tick_length: float | None = None
+    minor_tick_width: float | None = None
+    top_ticks: bool | None = None
+    right_ticks: bool | None = None
     degree_symbol: str | None = None
     direction_label: bool | None = None
     top_labels: bool | None = None
@@ -309,6 +323,15 @@ class MapTicks(_Option):
             "inout",
         ):
             raise ValueError("direction must be 'out', 'in' or 'inout'")
+        for name in (
+            "major_tick_length",
+            "major_tick_width",
+            "minor_tick_length",
+            "minor_tick_width",
+        ):
+            value = getattr(self, name)
+            if value is not None and not (math.isfinite(value) and value >= 0.0):
+                raise ValueError(f"{name} must be non-negative and finite")
         if self.gridline_alpha is not None and not 0.0 <= self.gridline_alpha <= 1.0:
             raise ValueError("gridline_alpha must be None or lie in [0, 1]")
         if self.gridline_linewidth is not None and not (
@@ -369,6 +392,15 @@ class ColorbarStyle(_Option):
     minimal_ticks_threshold : int, optional
         Number of colour boundaries above which ``minimal_ticks`` thins the
         labels. Default 6.
+    linewidth : float, optional
+        Colorbar outline width in points; use Matplotlib defaults if omitted.
+    edgecolor : str, optional
+        Colorbar outline edge color; use Matplotlib defaults if omitted.
+    major_tick_length, major_tick_width : float, optional
+        Colorbar major tick dimensions in points; default to Matplotlib settings.
+    ticks_visible : bool, optional
+        ``False`` hides all colorbar tick marks, major and minor, and keeps the
+        labels. Unchanged when omitted.
     """
 
     drawedges: bool = True
@@ -382,9 +414,22 @@ class ColorbarStyle(_Option):
     pad_with_labels: float | None = None
     facet_length: float | None = None
     minimal_ticks_threshold: int | None = None
+    linewidth: float | None = None
+    edgecolor: str | None = None
+    major_tick_length: float | None = None
+    major_tick_width: float | None = None
+    ticks_visible: bool | None = None
 
     def __post_init__(self) -> None:
         _check_powerlimits(self.powerlimits)
+        for name in (
+            "linewidth",
+            "major_tick_length",
+            "major_tick_width",
+        ):
+            value = getattr(self, name)
+            if value is not None and not (math.isfinite(value) and value >= 0.0):
+                raise ValueError(f"{name} must be non-negative and finite")
         for name in ("thickness", "pad", "pad_with_labels"):
             value = getattr(self, name)
             if value is not None and not (math.isfinite(value) and value >= 0.0):
@@ -415,6 +460,11 @@ class ColorbarStyle(_Option):
                 "pad_with_labels",
                 "facet_length",
                 "minimal_ticks_threshold",
+                "linewidth",
+                "edgecolor",
+                "major_tick_length",
+                "major_tick_width",
+                "ticks_visible",
             )
             if getattr(self, name) is not None
         }
@@ -447,18 +497,21 @@ class MapFeatures(_Option):
         are downloaded by Cartopy on first use. Note that state boundaries at
         110m cover the United States only.
     coastline_color : str, optional
-        Coastline color. Default is Cartopy's black.
+        Coastline color. Cartopy default when omitted.
     coastline_linewidth : float, optional
-        Coastline width in points. Default is the Matplotlib line width.
+        Coastline width in points. Matplotlib default when omitted.
+    edgecolor : str, optional
+        Map frame edge color. Unchanged when omitted.
+    linewidth : float, optional
+        Map frame spine width in points. Unchanged when omitted.
     states_alpha, borders_alpha : float, optional
         Opacity of the state and country boundaries, in [0, 1]. Default 0.3.
     boundary_linestyle : str, optional
         Line style of the state and country boundaries. Default ``"-"``.
     boundary_color : str, optional
-        Color of the state and country boundaries. Default is Cartopy's black.
+        Color of state and country boundaries. Cartopy default when omitted.
     boundary_linewidth : float, optional
-        Width of the state and country boundaries in points. Default is the
-        Matplotlib line width.
+        Width of state and country boundaries in points. Matplotlib default when omitted.
     boundary_zorder : float, optional
         Drawing order of the state and country boundaries. Default 3.
     states_color, borders_color : str, optional
@@ -514,6 +567,8 @@ class MapFeatures(_Option):
     resolution: Literal["110m", "50m", "10m"] | None = None
     coastline_color: str | None = None
     coastline_linewidth: float | None = None
+    edgecolor: str | None = None
+    linewidth: float | None = None
     states_alpha: float | None = None
     borders_alpha: float | None = None
     boundary_linestyle: str | None = None
@@ -556,6 +611,7 @@ class MapFeatures(_Option):
                 raise ValueError(f"{name} must be None or lie in [0, 1]")
         for name in (
             "coastline_linewidth",
+            "linewidth",
             "boundary_linewidth",
             "states_linewidth",
             "borders_linewidth",
@@ -594,6 +650,117 @@ class MapFeatures(_Option):
             "zorder": self.grid_bounds_zorder,
         }
         return {name: value for name, value in names.items() if value is not None}
+
+
+type MapThemeName = Literal["default", "ncl", "publication", "minimal"]
+
+
+@dataclass(frozen=True, slots=True)
+class MapTheme:
+    """Cartopy-only feature, tick and colorbar style presets.
+
+    Explicit :class:`MapFeatures`, :class:`MapTicks`, and :class:`ColorbarStyle`
+    values override preset fields. The colorbar orientation remains vertical
+    unless set separately in the plotting call.
+    """
+
+    features: MapFeatures
+    ticks: MapTicks | None
+    colorbar: ColorbarStyle
+
+    @classmethod
+    def default(cls) -> Self:
+        """Preserve the original plotting appearance and disabled map ticks."""
+        return cls(MapFeatures(), None, ColorbarStyle())
+
+    @classmethod
+    def ncl(cls) -> Self:
+        """Use fine gray coastlines and outward geographic ticks."""
+        return cls(
+            MapFeatures(
+                linewidth=0.9,
+                edgecolor="0.2",
+                coastline_linewidth=0.55,
+                coastline_color="0.35",
+                boundary_linewidth=0.5,
+                boundary_color="0.4",
+            ),
+            MapTicks(
+                direction="out",
+                minor_ticks=True,
+                major_tick_length=7.0,
+                major_tick_width=0.8,
+                minor_tick_length=3.0,
+                minor_tick_width=0.5,
+                top_ticks=False,
+                right_ticks=True,
+            ),
+            ColorbarStyle(
+                linewidth=0.7,
+                edgecolor="0.2",
+                ticks_visible=False,
+            ),
+        )
+
+    @classmethod
+    def publication(cls) -> Self:
+        """Use restrained dark-gray outlines and outward major ticks."""
+        return cls(
+            MapFeatures(
+                linewidth=0.7,
+                edgecolor="0.25",
+                coastline_linewidth=0.45,
+                coastline_color="0.3",
+                boundary_linewidth=0.4,
+                boundary_color="0.5",
+            ),
+            MapTicks(
+                direction="out",
+                minor_ticks=False,
+                major_tick_length=5.0,
+                major_tick_width=0.65,
+                top_ticks=False,
+                right_ticks=False,
+            ),
+            ColorbarStyle(
+                linewidth=0.6,
+                edgecolor="0.25",
+            ),
+        )
+
+    @classmethod
+    def minimal(cls) -> Self:
+        """Use light fine map outlines without geographic ticks."""
+        return cls(
+            MapFeatures(
+                linewidth=0.5,
+                edgecolor="0.5",
+                coastline_linewidth=0.3,
+                coastline_color="0.55",
+                boundary_linewidth=0.3,
+                boundary_color="0.65",
+            ),
+            None,
+            ColorbarStyle(
+                linewidth=0.5,
+                edgecolor="0.5",
+            ),
+        )
+
+    @classmethod
+    def from_name(cls, name: MapThemeName) -> Self:
+        """Build a preset by name, rejecting unknown strings at runtime."""
+        match name:
+            case "default":
+                return cls.default()
+            case "ncl":
+                return cls.ncl()
+            case "publication":
+                return cls.publication()
+            case "minimal":
+                return cls.minimal()
+            case _:
+                raise ValueError(f"unknown map_theme: {name!r}")
 
 
 @dataclass(frozen=True, kw_only=True, slots=True, eq=False)
@@ -803,6 +970,7 @@ class ResolvedOptions:
 
 def resolve_options(
     *,
+    map_theme: MapThemeName,
     method: Literal[
         "default", "pcolormesh", "contourf", "contour", "imshow", "scatter"
     ],
@@ -810,25 +978,46 @@ def resolve_options(
     features: MapFeatures | None,
     hillshade: bool | Hillshade,
     clabel: bool | ContourLabels,
-    map_ticks: bool | MapTicks,
+    map_ticks: bool | MapTicks | None,
     significance: Significance | None,
     vectors: VectorField | None,
 ) -> ResolvedOptions:
-    """Coerce every grouped option of a plot call.
+    """Resolve named Cartopy presets, then apply explicit per-group overrides.
 
-    ``colorbar_style`` and ``features`` fall back to their defaults. The other
-    groups are ``None`` when disabled. Line contours are always labelled, with
-    the label settings if given.
+    ``map_ticks=None`` inherits the preset; ``False`` disables ticks and
+    ``True`` enables the preset's ticks (or the standard MapTicks defaults).
     """
+    preset = MapTheme.from_name(map_theme)
+    resolved_features = (
+        replace(preset.features, **features.arguments())
+        if features is not None
+        else preset.features
+    )
+    resolved_colorbar = (
+        replace(preset.colorbar, **colorbar_style.arguments())
+        if colorbar_style is not None
+        else preset.colorbar
+    )
+    if map_ticks is False:
+        resolved_ticks = None
+    elif map_ticks is None:
+        resolved_ticks = preset.ticks
+    else:
+        given_ticks = MapTicks.coerce(map_ticks)
+        resolved_ticks = replace(
+            preset.ticks or MapTicks(),
+            **(given_ticks.arguments() if isinstance(map_ticks, MapTicks) else {}),
+        )
+
     contour_labels = ContourLabels.coerce(clabel)
     if contour_labels is None and method == "contour":
         contour_labels = ContourLabels()
     return ResolvedOptions(
-        colorbar_style=ColorbarStyle.coerce(colorbar_style) or ColorbarStyle(),
-        features=MapFeatures.coerce(features) or MapFeatures(),
+        colorbar_style=resolved_colorbar,
+        features=resolved_features,
         hillshade=Hillshade.coerce(hillshade),
         contour_labels=contour_labels,
-        map_ticks=MapTicks.coerce(map_ticks),
+        map_ticks=resolved_ticks,
         significance=Significance.coerce(significance),
         vectors=VectorField.coerce(vectors),
     )

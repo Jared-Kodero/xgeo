@@ -479,6 +479,10 @@ class GeoDataArray(GeoBase):
         -------
         GeoPlot
             Composable map object for geographic plots.
+
+        See Also
+        --------
+        set_options : Standing map theme, features, colorbar and rc defaults.
         """
 
         opts = xgeo_core_utils.exclude_key("self", dict(locals()))
@@ -646,6 +650,10 @@ class GeoDataArray(GeoBase):
         -------
         IPython.display.DisplayHandle or None
             Notebook display handle when available.
+
+        See Also
+        --------
+        set_options : Standing map theme, features, colorbar and rc defaults.
         """
 
         opts = xgeo_core_utils.exclude_key("self", dict(locals()))

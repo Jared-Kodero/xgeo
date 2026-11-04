@@ -76,11 +76,11 @@ xg.plot.get_options()                           # current values
 
 | Option | Value | Effect |
 | --- | --- | --- |
-| `map_theme` | `"default"`, `"ncl"`, `"ferret"`, `"grads"`, `"gmt"` or a `MapTheme` | Style preset. A `MapTheme` is a custom preset, for example `dataclasses.replace(xg.plot_options.MapTheme.ncl(), rc={"font.family": "serif"})`. |
+| `map_theme` | `"default"`, `"ncl"`, `"ferret"`, `"grads"`, `"gmt"` or a `MapTheme` | Style preset. Change its font or any other rc parameter with the `rc` option below. |
 | `features`, `colorbar_style`, `map_ticks` | option instance or `None` | Standing defaults applied over the preset and overridden by the plotting call. |
-| `rc` | mapping | Matplotlib rc parameters applied only while a plot is built or extended (`plot.add.*`), then restored. They override the preset's `rc`. |
+| `rc` | mapping | Matplotlib rc parameters, including the font, applied only while a plot is built or extended (`plot.add.*`), then restored. They override the preset's `rc`. |
 
-The `ncl` and `gmt` presets request a Helvetica-like font through a `font.family` list (Liberation Sans, Arial, Helvetica, DejaVu Sans). Only installed families are used and nothing is downloaded. A plot keeps the rc parameters it was created with, so a colorbar added later matches the plot even if `set_options` has changed since. `animate` carries the current options into its worker processes.
+The `ncl` and `gmt` presets request a Helvetica-like font through a `font.family` list (Liberation Sans, Arial, Helvetica, DejaVu Sans). Only installed families are used and nothing is downloaded. While a plot is built, the preset's `rc` overrides a global `xg.plot.theme(...)`, so `theme(font_family="serif")` does not change the font of an `ncl` or `gmt` map; use `set_options(rc={"font.family": "serif"})` for that. A plot keeps the rc parameters it was created with, so a colorbar added later matches the plot even if `set_options` has changed since. `animate` carries the current options into its worker processes.
 
 The `states_*` and `borders_*` fields style the two boundary layers separately and fall back to the shared `boundary_*` value when `None`. `gridline_*` apply when `gridlines` is true. `Significance(hatch="///")` replaces stippling with a hatch drawn over the region where `pvalues < level` (all non-missing `pvalues` when `level` is `None`); `color` and `edgecolors` set the hatch colour and `marker`, `size` and `subsample` are then ignored. `VectorField(cmap=...)` colours the arrows by magnitude on a normalisation shared by all panels and frames (`vmin` defaults to 0, `vmax` to the maximum magnitude), is mutually exclusive with `color`, and gives a mappable for `plot.add.colorbar(plot.quiver)`. `key_color` sets the key arrow and label colour and `key_align` (`"left"`, `"center"` or `"right"`) its horizontal position under the axes.
 

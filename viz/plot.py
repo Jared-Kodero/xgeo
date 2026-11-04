@@ -786,6 +786,10 @@ class GeoPlot:
         Registered layers in drawing order.
     add : Adder
         Namespace containing chainable overlay methods.
+
+    See Also
+    --------
+    set_options : Standing map theme, features, colorbar and rc defaults.
     """
 
     def __init__(
@@ -2154,6 +2158,10 @@ class Animate:
         Rendered frame indices.
     display_result : object or None
         Result returned by IPython display.
+
+    See Also
+    --------
+    set_options : Standing map theme, features, colorbar and rc defaults.
     """
 
     def __init__(
@@ -2582,6 +2590,10 @@ def geoplot(
     -------
     GeoPlot
         Plot container holding the figure, axes, and all primitives.
+
+    See Also
+    --------
+    set_options : Standing map theme, features, colorbar and rc defaults.
     """
     kwargs0 = locals()
     kwargs1 = kwargs0.pop("kwargs")
@@ -2739,6 +2751,10 @@ def animate(
     -------
     Animate
         Animation container holding output state.
+
+    See Also
+    --------
+    set_options : Standing map theme, features, colorbar and rc defaults.
     """
     kwargs0 = locals()
     kwargs1 = kwargs0.pop("kwargs")

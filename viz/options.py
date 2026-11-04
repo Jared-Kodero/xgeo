@@ -735,8 +735,9 @@ class MapTheme:
     values override preset fields. ``rc`` holds Matplotlib rc parameters that are
     applied only while a plot is built and drawn, then restored. No font is
     downloaded or installed: ``font.family`` is a fallback list that Matplotlib
-    resolves against the installed fonts. The colorbar remains vertical unless
-    set separately.
+    resolves against the installed fonts. While a plot is built the preset's
+    ``rc`` overrides a global :func:`xgeo.plot.theme`, and ``set_options(rc=...)``
+    overrides the preset. The colorbar remains vertical unless set separately.
     """
 
     features: MapFeatures
@@ -933,8 +934,8 @@ class set_options:
     Parameters
     ----------
     map_theme : {"default", "ncl", "ferret", "grads", "gmt"} or MapTheme
-        Style preset. Pass a :class:`MapTheme` for a custom preset, for example
-        ``dataclasses.replace(MapTheme.ncl(), rc={"font.family": "serif"})``.
+        Style preset. Change a preset's font or any other rc parameter with
+        ``rc`` rather than building a new :class:`MapTheme`.
     features : MapFeatures or None
         Default map features, applied over the preset.
     colorbar_style : ColorbarStyle or None
@@ -943,13 +944,14 @@ class set_options:
         Default geographic ticks, applied over the preset. ``None`` keeps the
         preset's ticks.
     rc : mapping
-        Matplotlib rc parameters applied only while a plot is built, drawn or
-        extended, then restored. They override the preset's ``rc``.
+        Matplotlib rc parameters, including the font, applied only while a plot
+        is built, drawn or extended, then restored. They override the preset's
+        ``rc``, which in turn overrides a global :func:`xgeo.plot.theme`.
 
     Examples
     --------
     >>> xgeo.plot.set_options(map_theme="ncl")
-    >>> with xgeo.plot.set_options(map_theme="gmt"):
+    >>> with xgeo.plot.set_options(map_theme="ncl", rc={"font.family": "serif"}):
     ...     xgeo.plot.geoplot(da)
     """
 

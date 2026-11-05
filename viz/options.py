@@ -16,10 +16,12 @@ are keyword-only, named and typed; no class accepts open-ended keyword
 arguments.
 
 Fields of :class:`MapFeatures`, :class:`MapTicks` and :class:`ColorbarStyle`
-default to ``None``, meaning "not set". Resolution layers them, later layers
-winning: class defaults, the :class:`MapTheme` preset, :func:`set_options`, and
-the keyword given in the plotting call. A field a user does not set therefore
-never overrides the preset.
+are declared with ``option(default)``: they start as ``UNSET`` and take
+``default`` only if no layer sets them. Resolution layers them, later layers
+winning: the declared defaults, the :class:`MapTheme` preset,
+:func:`set_options`, and the keyword given in the plotting call. A field a user
+does not set therefore never overrides the preset, while an explicit ``None``
+does and selects the callee default.
 
 Standing, style-only defaults are set once with :func:`set_options`, either
 globally or for a ``with`` block::
@@ -38,7 +40,6 @@ from numbers import Integral
 from typing import (
     TYPE_CHECKING,
     Any,
-    ClassVar,
     Literal,
     Self,
     TypedDict,
@@ -66,22 +67,60 @@ __all__ = [
 ]
 
 
+class _Unset:
+    """Marks a layered field that no layer has set."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __reduce__(self) -> str:
+        return "UNSET"
+
+
+UNSET: Any = _Unset()
+
+
+def option(default: Any = None) -> Any:
+    """Declare a layered field: ``UNSET`` until given, ``default`` once resolved."""
+    return field(default=UNSET, metadata={"default": default})
+
+
 class Option:
     """Shared construction logic for option dataclasses."""
 
     __slots__ = ()
 
-    #: Values of the fields that default to ``None`` ("not set").
-    DEFAULTS: ClassVar[Mapping[str, Any]] = {}
-
     @classmethod
     def defaults(cls) -> Self:
-        """Return the instance with every field at its documented default."""
-        return cls(**cls.DEFAULTS)
+        """Return the instance with every layered field at its declared default."""
+        return cls(
+            **{
+                f.name: f.metadata["default"]
+                for f in fields(cls)
+                if "default" in f.metadata
+            }
+        )
+
+    def given(self) -> dict[str, Any]:
+        """Return the fields that were set, including those set to ``None``."""
+        return {
+            f.name: value
+            for f in fields(self)
+            if (value := getattr(self, f.name)) is not UNSET
+        }
 
     def over(self, other: Self | None) -> Self:
         """Return a copy with the fields that ``other`` sets applied on top."""
-        return self if other is None else replace(self, **other.arguments())
+        return self if other is None else replace(self, **other.given())
+
+    def get(self, name: str) -> Any:
+        """Return a field, mapping ``UNSET`` to ``None``."""
+        return None if (value := getattr(self, name)) is UNSET else value
 
     @classmethod
     def coerce(cls, value: bool | Self | None) -> Self | None:
@@ -107,16 +146,18 @@ class Option:
         )
 
     def arguments(self, *, exclude: Sequence[str] = ()) -> dict[str, Any]:
-        """Return the fields that are not ``None`` as keyword arguments.
+        """Return the fields that are neither ``None`` nor ``UNSET`` as keyword arguments.
 
         ``None`` marks "use the callee default", so omitting it keeps the
         callee in control of every unset value. ``exclude`` drops fields that
         are passed separately.
         """
         return {
-            field.name: getattr(self, field.name)
-            for field in fields(self)
-            if field.name not in exclude and getattr(self, field.name) is not None
+            f.name: value
+            for f in fields(self)
+            if f.name not in exclude
+            and (value := getattr(self, f.name)) is not None
+            and value is not UNSET
         }
 
 
@@ -290,7 +331,7 @@ class ContourLabels(Option):
 class MapTicks(Option):
     """Longitude and latitude tick settings.
 
-    Fields left as ``None`` are not set: they take the :class:`MapTheme` preset
+    Fields that are not given are unset: they take the :class:`MapTheme` preset
     value or, failing that, the default given below.
 
     Parameters
@@ -331,37 +372,31 @@ class MapTicks(Option):
     The ``gridline_*`` fields take effect only when ``gridlines`` is true.
     """
 
-    DEFAULTS: ClassVar[Mapping[str, Any]] = {"xbins": 5, "ybins": 5}
-
-    xbins: int | None = None
-    ybins: int | None = None
-    direction: Literal["out", "in", "inout"] | None = None
-    minor_ticks: bool | None = None
-    major_tick_length: float | None = None
-    major_tick_width: float | None = None
-    minor_tick_length: float | None = None
-    minor_tick_width: float | None = None
-    top_ticks: bool | None = None
-    right_ticks: bool | None = None
-    degree_symbol: str | None = None
-    direction_label: bool | None = None
-    top_labels: bool | None = None
-    right_labels: bool | None = None
-    gridlines: bool | None = None
-    gridline_color: str | None = None
-    gridline_linestyle: str | None = None
-    gridline_linewidth: float | None = None
-    gridline_alpha: float | None = None
+    xbins: int = option(5)
+    ybins: int = option(5)
+    direction: Literal["out", "in", "inout"] | None = option()
+    minor_ticks: bool | None = option()
+    major_tick_length: float | None = option()
+    major_tick_width: float | None = option()
+    minor_tick_length: float | None = option()
+    minor_tick_width: float | None = option()
+    top_ticks: bool | None = option()
+    right_ticks: bool | None = option()
+    degree_symbol: str | None = option()
+    direction_label: bool | None = option()
+    top_labels: bool | None = option()
+    right_labels: bool | None = option()
+    gridlines: bool | None = option()
+    gridline_color: str | None = option()
+    gridline_linestyle: str | None = option()
+    gridline_linewidth: float | None = option()
+    gridline_alpha: float | None = option()
 
     def __post_init__(self) -> None:
-        if self.direction is not None and self.direction not in (
-            "out",
-            "in",
-            "inout",
-        ):
+        if self.get("direction") not in (None, "out", "in", "inout"):
             raise ValueError("direction must be 'out', 'in' or 'inout'")
         for name in ("xbins", "ybins"):
-            value = getattr(self, name)
+            value = self.get(name)
             if value is not None and not (
                 isinstance(value, Integral)
                 and not isinstance(value, bool)
@@ -374,13 +409,14 @@ class MapTicks(Option):
             "minor_tick_length",
             "minor_tick_width",
         ):
-            value = getattr(self, name)
+            value = self.get(name)
             if value is not None and not (math.isfinite(value) and value >= 0.0):
                 raise ValueError(f"{name} must be non-negative and finite")
-        if self.gridline_alpha is not None and not 0.0 <= self.gridline_alpha <= 1.0:
+        alpha = self.get("gridline_alpha")
+        if alpha is not None and not 0.0 <= alpha <= 1.0:
             raise ValueError("gridline_alpha must be None or lie in [0, 1]")
-        if self.gridline_linewidth is not None and not (
-            math.isfinite(self.gridline_linewidth) and self.gridline_linewidth >= 0.0
+        if (width := self.get("gridline_linewidth")) is not None and not (
+            math.isfinite(width) and width >= 0.0
         ):
             raise ValueError("gridline_linewidth must be non-negative and finite")
 
@@ -391,8 +427,8 @@ class MapTicks(Option):
         fields are omitted so that the callee defaults apply.
         """
         arguments = self.arguments(exclude=("xbins", "ybins"))
-        arguments["xticks_bins"] = self.xbins
-        arguments["yticks_bins"] = self.ybins
+        arguments["xticks_bins"] = self.get("xbins")
+        arguments["yticks_bins"] = self.get("ybins")
         return arguments
 
 
@@ -400,7 +436,7 @@ class MapTicks(Option):
 class ColorbarStyle(Option):
     """Colorbar styling beyond ``colorbar``, ``colorbar_label`` and ``colorbar_orientation``.
 
-    Fields left as ``None`` are not set: they take the :class:`MapTheme` preset
+    Fields that are not given are unset: they take the :class:`MapTheme` preset
     value or, failing that, the default given below.
 
     Parameters
@@ -451,53 +487,46 @@ class ColorbarStyle(Option):
         labels. Unchanged when omitted.
     """
 
-    DEFAULTS: ClassVar[Mapping[str, Any]] = {
-        "drawedges": True,
-        "minimal_ticks": True,
-        "scalar_formatter": True,
-        "powerlimits": (-3, 3),
-    }
-
-    drawedges: bool | None = None
-    minimal_ticks: bool | None = None
-    scalar_formatter: bool | None = None
-    powerlimits: tuple[int, int] | None = None
-    ticks: Sequence[float] | None = None
-    tick_labels: Sequence[str] | None = None
-    thickness: float | None = None
-    pad: float | None = None
-    pad_with_labels: float | None = None
-    facet_length: float | None = None
-    minimal_ticks_threshold: int | None = None
-    linewidth: float | None = None
-    edgecolor: str | None = None
-    major_tick_length: float | None = None
-    major_tick_width: float | None = None
-    ticks_visible: bool | None = None
+    drawedges: bool = option(True)
+    minimal_ticks: bool = option(True)
+    scalar_formatter: bool = option(True)
+    powerlimits: tuple[int, int] = option((-3, 3))
+    ticks: Sequence[float] | None = option()
+    tick_labels: Sequence[str] | None = option()
+    thickness: float | None = option()
+    pad: float | None = option()
+    pad_with_labels: float | None = option()
+    facet_length: float | None = option()
+    minimal_ticks_threshold: int | None = option()
+    linewidth: float | None = option()
+    edgecolor: str | None = option()
+    major_tick_length: float | None = option()
+    major_tick_width: float | None = option()
+    ticks_visible: bool | None = option()
 
     def __post_init__(self) -> None:
-        if self.powerlimits is not None:
-            check_powerlimits(self.powerlimits)
+        if (limits := self.get("powerlimits")) is not None:
+            check_powerlimits(limits)
         for name in (
             "linewidth",
             "major_tick_length",
             "major_tick_width",
         ):
-            value = getattr(self, name)
+            value = self.get(name)
             if value is not None and not (math.isfinite(value) and value >= 0.0):
                 raise ValueError(f"{name} must be non-negative and finite")
         for name in ("thickness", "pad", "pad_with_labels"):
-            value = getattr(self, name)
+            value = self.get(name)
             if value is not None and not (math.isfinite(value) and value >= 0.0):
                 raise ValueError(f"{name} must be non-negative and finite")
-        if self.thickness is not None and self.thickness == 0.0:
+        if self.get("thickness") == 0.0:
             raise ValueError("thickness must be positive")
-        if self.facet_length is not None and not 0.0 < self.facet_length <= 1.0:
+        if (length := self.get("facet_length")) is not None and not 0.0 < length <= 1.0:
             raise ValueError("facet_length must lie in (0, 1]")
-        if self.minimal_ticks_threshold is not None and (
-            isinstance(self.minimal_ticks_threshold, bool)
-            or not isinstance(self.minimal_ticks_threshold, Integral)
-            or self.minimal_ticks_threshold < 1
+        if (threshold := self.get("minimal_ticks_threshold")) is not None and (
+            isinstance(threshold, bool)
+            or not isinstance(threshold, Integral)
+            or threshold < 1
         ):
             raise ValueError("minimal_ticks_threshold must be a positive integer")
 
@@ -509,7 +538,7 @@ class ColorbarStyle(Option):
         defaults apply.
         """
         return {
-            name: getattr(self, name)
+            name: value
             for name in (
                 "thickness",
                 "pad",
@@ -522,7 +551,7 @@ class ColorbarStyle(Option):
                 "major_tick_width",
                 "ticks_visible",
             )
-            if getattr(self, name) is not None
+            if (value := self.get(name)) is not None
         }
 
 
@@ -530,7 +559,7 @@ class ColorbarStyle(Option):
 class MapFeatures(Option):
     """Cartopy map features, extent and grid outline.
 
-    Fields left as ``None`` are not set: they take the :class:`MapTheme` preset
+    Fields that are not given are unset: they take the :class:`MapTheme` preset
     value or, failing that, the default given below.
 
     Parameters
@@ -613,71 +642,55 @@ class MapFeatures(Option):
         Drawing order of the ``grid_bounds`` outline. Default 1.
     """
 
-    DEFAULTS: ClassVar[Mapping[str, Any]] = {
-        "coastlines": True,
-        "borders": True,
-        "states": True,
-        "ocean": True,
-        "land": True,
-        "lakes": False,
-        "rivers": False,
-        "global_extent": False,
-        "grid_bounds": False,
-    }
-
-    coastlines: bool | None = None
-    borders: bool | None = None
-    states: bool | None = None
-    ocean: bool | None = None
-    land: bool | None = None
-    lakes: bool | None = None
-    rivers: bool | None = None
-    global_extent: bool | None = None
-    extent: tuple[float, float, float, float] | None = None
-    grid_bounds: bool | None = None
-    resolution: Literal["110m", "50m", "10m"] | None = None
-    coastline_color: str | None = None
-    coastline_linewidth: float | None = None
-    edgecolor: str | None = None
-    linewidth: float | None = None
-    states_alpha: float | None = None
-    borders_alpha: float | None = None
-    boundary_linestyle: str | None = None
-    boundary_color: str | None = None
-    boundary_linewidth: float | None = None
-    boundary_zorder: float | None = None
-    states_color: str | None = None
-    states_linestyle: str | None = None
-    states_linewidth: float | None = None
-    states_zorder: float | None = None
-    borders_color: str | None = None
-    borders_linestyle: str | None = None
-    borders_linewidth: float | None = None
-    borders_zorder: float | None = None
-    coastline_alpha: float | None = None
-    coastline_zorder: float | None = None
-    lakes_linewidth: float | None = None
-    rivers_linewidth: float | None = None
-    water_color: str | None = None
-    water_zorder: float | None = None
-    land_color: str | None = None
-    ocean_color: str | None = None
-    background_zorder: float | None = None
-    grid_bounds_linewidth: float | None = None
-    grid_bounds_color: str | None = None
-    grid_bounds_zorder: float | None = None
+    coastlines: bool = option(True)
+    borders: bool = option(True)
+    states: bool = option(True)
+    ocean: bool = option(True)
+    land: bool = option(True)
+    lakes: bool = option(False)
+    rivers: bool = option(False)
+    global_extent: bool = option(False)
+    extent: tuple[float, float, float, float] | None = option()
+    grid_bounds: bool = option(False)
+    resolution: Literal["110m", "50m", "10m"] | None = option()
+    coastline_color: str | None = option()
+    coastline_linewidth: float | None = option()
+    edgecolor: str | None = option()
+    linewidth: float | None = option()
+    states_alpha: float | None = option()
+    borders_alpha: float | None = option()
+    boundary_linestyle: str | None = option()
+    boundary_color: str | None = option()
+    boundary_linewidth: float | None = option()
+    boundary_zorder: float | None = option()
+    states_color: str | None = option()
+    states_linestyle: str | None = option()
+    states_linewidth: float | None = option()
+    states_zorder: float | None = option()
+    borders_color: str | None = option()
+    borders_linestyle: str | None = option()
+    borders_linewidth: float | None = option()
+    borders_zorder: float | None = option()
+    coastline_alpha: float | None = option()
+    coastline_zorder: float | None = option()
+    lakes_linewidth: float | None = option()
+    rivers_linewidth: float | None = option()
+    water_color: str | None = option()
+    water_zorder: float | None = option()
+    land_color: str | None = option()
+    ocean_color: str | None = option()
+    background_zorder: float | None = option()
+    grid_bounds_linewidth: float | None = option()
+    grid_bounds_color: str | None = option()
+    grid_bounds_zorder: float | None = option()
 
     def __post_init__(self) -> None:
-        if self.extent is not None and len(self.extent) != 4:
+        if (extent := self.get("extent")) is not None and len(extent) != 4:
             raise ValueError("extent must be (lon_min, lon_max, lat_min, lat_max)")
-        if self.resolution is not None and self.resolution not in (
-            "110m",
-            "50m",
-            "10m",
-        ):
+        if self.get("resolution") not in (None, "110m", "50m", "10m"):
             raise ValueError("resolution must be '110m', '50m' or '10m'")
         for name in ("states_alpha", "borders_alpha", "coastline_alpha"):
-            value = getattr(self, name)
+            value = self.get(name)
             if value is not None and not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be None or lie in [0, 1]")
         for name in (
@@ -690,7 +703,7 @@ class MapFeatures(Option):
             "rivers_linewidth",
             "grid_bounds_linewidth",
         ):
-            value = getattr(self, name)
+            value = self.get(name)
             if value is not None and not (math.isfinite(value) and value >= 0.0):
                 raise ValueError(f"{name} must be non-negative and finite")
 
@@ -716,9 +729,9 @@ class MapFeatures(Option):
         arguments of :func:`~xgeo.viz.primitives.add_grid_boundary`.
         """
         names = {
-            "linewidth": self.grid_bounds_linewidth,
-            "color": self.grid_bounds_color,
-            "zorder": self.grid_bounds_zorder,
+            "linewidth": self.get("grid_bounds_linewidth"),
+            "color": self.get("grid_bounds_color"),
+            "zorder": self.get("grid_bounds_zorder"),
         }
         return {name: value for name, value in names.items() if value is not None}
 

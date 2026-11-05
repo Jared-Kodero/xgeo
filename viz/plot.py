@@ -462,7 +462,7 @@ class FacetedPlot:
         features: MapFeatures | None = None,
         map_ticks: MapTicks | None = None,
     ) -> None:
-        features = features or MapFeatures()
+        features = MapFeatures.defaults().over(features)
         self.data = data
         self.x = x
         self.y = y

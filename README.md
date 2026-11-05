@@ -59,7 +59,9 @@ Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection
 
 `VectorField` and `Significance` carry data (the vector components, the p-values) rather than options, so they are `xg.plot.VectorField` and `xg.plot.Significance`, not part of `xg.plot_options`. The fields marked advanced, and the `None`-valued fields of `VectorField`, keep the plotting defaults when left unset, so existing calls are unchanged.
 
-Fields of `MapFeatures`, `MapTicks` and `ColorbarStyle` default to `None`, meaning "not set". Values are layered, later layers winning: the class defaults, the map theme preset, `set_options`, then the keyword in the plotting call. A field you do not set therefore never overrides the theme, so `MapFeatures(lakes=True)` leaves `borders=False` of the `ferret`, `grads` and `gmt` themes in place.
+Fields of `MapFeatures`, `MapTicks` and `ColorbarStyle` are declared with `option(default)`: each starts as `UNSET` and takes its declared default only if no layer sets it. The default is written once, on the field (`xbins: int = option(5)`), and `defaults()` reads it from there. Values are layered, later layers winning: the declared defaults, the map theme preset, `set_options`, then the keyword in the plotting call. A field you do not set therefore never overrides the theme, so `MapFeatures(lakes=True)` leaves `borders=False` of the `ferret`, `grads` and `gmt` themes in place.
+
+An explicit `None` is a value, not "unset": it overrides lower layers and selects the callee default, so `ColorbarStyle(edgecolor=None)` cancels the edge colour of a preset. On a field that has a declared default, such as `coastlines` or `xbins`, `None` replaces that default; pass `False` or a number instead. The fields of an instance you build yourself read `UNSET` until set. The options a plot uses are resolved, so every field then holds a value.
 
 ### Standing options
 
@@ -153,7 +155,7 @@ Plotting is split into three modules under [`viz/`](viz/):
 
 * [`viz/plot.py`](viz/plot.py) holds the stateful classes and entry points: `GeoPlot` (figure, axes and every primitive it creates), `FacetedPlot` (facet layout), `Adder` (overlays, available as `GeoPlot.add`), `Animate` and the functions `geoplot`, `animate`, `theme`, `colorbar` and `create_figure`.
 * [`viz/primitives.py`](viz/primitives.py) holds the stateless drawing functions (`plot_field`, `plot_quiver`, `plot_significance`) and the input and colormap helpers. `plot_field(method, data, fig, ax, ...)` is the one function behind the base layer and every scalar overlay, for `"default"`, `"pcolormesh"`, `"contourf"`, `"contour"`, `"imshow"` and `"scatter"`. It sends `levels`, `extend`, `robust` and `rasterized` only to the methods that use them and forwards every other keyword to xarray or Matplotlib. `"scatter"` also accepts an `(x, y)` tuple of arrays.
-* [`viz/options.py`](viz/options.py) holds the option dataclasses described above.
+* [`viz/options.py`](viz/options.py) holds the option dataclasses described above, the `option(default)` field declaration that holds each layered default, `set_options` and `resolve_options`.
 
 Overlays are added to an existing plot with `GeoPlot.add` and can be chained. Each call draws on every panel of a faceted plot, records its primitives in `GeoPlot.layers` and returns the plot:
 

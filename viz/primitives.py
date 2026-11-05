@@ -848,7 +848,7 @@ def format_scalar(value: float, powerlimits: tuple[int, int] = (-3, 3)) -> str:
     formatter.axis.set_view_interval(min(0.0, value), max(0.0, value))
     formatter.set_locs([value])
     significand = formatter(value)
-    exponent = formatter.orderOfMagnitude
+    exponent = int(formatter.get_offset().replace("\N{MINUS SIGN}", "-")[2:] or 0)
     if exponent == 0:
         return significand
     return rf"${significand}\times10^{{{exponent}}}$"
@@ -934,7 +934,7 @@ class AutoQuiverKey(QuiverKey):
     def _arrow_extent(self, renderer: Any) -> Bbox:
         """Display-space extent of the key arrow, relative to its anchor."""
         self._init()
-        vertices = self.Q.get_transform().transform(np.asarray(self.verts[0]))
+        vertices = self.Q.get_transform().transform(self.vector.get_paths()[0].vertices)
         return Bbox.from_extents(*vertices.min(axis=0), *vertices.max(axis=0))
 
     def draw(self, renderer: Any) -> None:

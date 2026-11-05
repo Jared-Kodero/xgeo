@@ -408,8 +408,9 @@ class GeoDataArray(GeoBase):
         figsize : tuple[float, float], optional
             Figure size in inches.
         sharex, sharey : bool, default True
-            Share horizontal and vertical axis limits across facet panels. Ignored
-            for non-faceted plots.
+            Share axis limits across facet panels. On PlateCarree and Mercator
+            maps this also limits tick labels to the outer panels. Ignored for
+            non-faceted plots.
         interactive : bool, default False
             Configure Matplotlib for interactive notebook use.
         method : {"default", "pcolormesh", "contourf", "contour", "imshow", "scatter"}

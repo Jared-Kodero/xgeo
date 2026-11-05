@@ -342,6 +342,9 @@ class MapTicks(Option):
         Tick-mark direction. Default ``"out"``.
     minor_ticks : bool, optional
         Show minor ticks. Default ``False``.
+    xminor, yminor : int, optional
+        Minor intervals per major interval; ``3`` gives two minor ticks between
+        majors. Requires ``minor_ticks``.
     major_tick_length, minor_tick_length : float, optional
         Tick lengths in points. Use Matplotlib defaults when omitted.
     major_tick_width, minor_tick_width : float, optional
@@ -376,6 +379,8 @@ class MapTicks(Option):
     ybins: int = option(5)
     direction: Literal["out", "in", "inout"] | None = option()
     minor_ticks: bool | None = option()
+    xminor: int | None = option()
+    yminor: int | None = option()
     major_tick_length: float | None = option()
     major_tick_width: float | None = option()
     minor_tick_length: float | None = option()
@@ -395,7 +400,7 @@ class MapTicks(Option):
     def __post_init__(self) -> None:
         if self.get("direction") not in (None, "out", "in", "inout"):
             raise ValueError("direction must be 'out', 'in' or 'inout'")
-        for name in ("xbins", "ybins"):
+        for name in ("xbins", "ybins", "xminor", "yminor"):
             value = self.get(name)
             if value is not None and not (
                 isinstance(value, Integral)
@@ -765,7 +770,7 @@ class MapTheme:
 
     @classmethod
     def ncl(cls) -> Self:
-        """Use fine gray coastlines and outward geographic ticks."""
+        """Use fine gray coastlines and GeoCAT-viz style ticks on all four sides."""
         return cls(
             MapFeatures(
                 linewidth=0.9,
@@ -778,11 +783,13 @@ class MapTheme:
             MapTicks(
                 direction="out",
                 minor_ticks=True,
-                major_tick_length=7.0,
-                major_tick_width=0.8,
-                minor_tick_length=3.0,
-                minor_tick_width=0.5,
-                top_ticks=False,
+                xminor=3,
+                yminor=3,
+                major_tick_length=8.0,
+                major_tick_width=0.9,
+                minor_tick_length=4.0,
+                minor_tick_width=0.4,
+                top_ticks=True,
                 right_ticks=True,
                 degree_symbol="°",
                 direction_label=True,

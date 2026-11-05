@@ -424,7 +424,8 @@ class FacetedPlot:
     figsize : tuple of float, optional
         Figure size in inches. A domain-aware size is inferred when omitted.
     sharex, sharey : bool, default True
-        Share horizontal and vertical axis limits across facet panels.
+        Share axis limits across facet panels. On PlateCarree and Mercator
+        maps this also limits tick labels to the outer panels.
     features : MapFeatures, optional
         Map features, extent and grid outline applied to every panel. The
         defaults of :class:`MapFeatures` are used when omitted.
@@ -514,6 +515,8 @@ class FacetedPlot:
                     grid,
                     x=self.x,
                     y=self.y,
+                    bottom_labels=not (sharex and index + self.ncols < len(selectors)),
+                    left_labels=not (sharey and index % self.ncols),
                     **map_ticks.tick_arguments(),
                 )
             if features.grid_bounds:
@@ -698,8 +701,9 @@ class GeoPlot:
     figsize : tuple of float, optional
         Figure size in inches.
     sharex, sharey : bool, default True
-        Share horizontal and vertical axis limits across facet panels. Ignored
-        for non-faceted plots.
+        Share axis limits across facet panels. On PlateCarree and Mercator
+        maps this also limits tick labels to the outer panels. Ignored for
+        non-faceted plots.
     method : {"default", "pcolormesh", "contourf", "contour", "imshow", "scatter"}
         Base scalar plotting method.
     projection : {"PlateCarree", "Mercator", "Robinson", "Mollweide", "Orthographic", "LambertConformal", "AlbersEqualArea", "Stereographic", "NorthPolarStereo", "SouthPolarStereo"}, optional
@@ -2528,8 +2532,9 @@ def geoplot(
     figsize : tuple of float, optional
         Figure size in inches.
     sharex, sharey : bool, default True
-        Share horizontal and vertical axis limits across facet panels. Ignored
-        for non-faceted plots.
+        Share axis limits across facet panels. On PlateCarree and Mercator
+        maps this also limits tick labels to the outer panels. Ignored for
+        non-faceted plots.
     interactive : bool, optional
         If True, configures matplotlib for interactive use in Jupyter notebooks.
     method : {"default", "pcolormesh", "contourf", "contour", "imshow", "scatter"}

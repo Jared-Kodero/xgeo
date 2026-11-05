@@ -1,19 +1,17 @@
 # xgeo
 
-Climate-data analysis, geospatial processing, visualization, and memory-mapped storage built around [Xarray](https://xarray.dev/).
-
-`xgeo` provides the `.xgeo` accessor, Cartopy maps, geospatial transformations, statistical tools, scientific colormaps, and preprocessing. MPI-distributed arrays, the MPI context, and parallel NetCDF output belong to the separate [`xrmpi`](../xrmpi/README.md) package.
+Xarray tools for climate data: Cartopy maps, regridding, statistics, colormaps, preprocessing and memory-mapped storage. Everything is available through the `.xgeo` accessor. MPI arrays and parallel NetCDF I/O live in the separate `xrmpi` package.
 
 ## Installation
 
-Python **3.14 or newer** is required, matching `pyproject.toml`.
+Requires Python 3.14 or newer.
 
 ```bash
 python -m pip install xgeo
-python -m pip install "xgeo[regrid]"  # optional xesmf support
+python -m pip install "xgeo[regrid]"   # adds xesmf
 ```
 
-For users who clone the package, run from the `xgeo` clone root:
+From a clone (the Conda spec also installs `ffmpeg` for animations and `xesmf`):
 
 ```bash
 conda env create -n xgeo -f env/env.yaml
@@ -21,192 +19,132 @@ conda activate xgeo
 python -m pip install --no-deps -e .
 ```
 
-The package's own [`env/README.md`](env/README.md) documents creation, updates, optional features, notebook kernels, and installation into another environment. Its specification is [`env/env.yaml`](env/env.yaml).
+See [`env/README.md`](env/README.md) for updates and notebook kernels.
 
-Animations require `ffmpeg` on `PATH`. The Conda specification includes `ffmpeg` and `xesmf`.
-
-## Quick start
+## Plotting
 
 ```python
 import xarray as xr
-
 import xgeo as xg
 
+t2m = xr.open_dataset("climate.nc")["t2m"]
 
-ds = xr.open_dataset("climate.nc")
-t2m = ds["t2m"]
-plot = t2m.xgeo.geoplot(
-    method="contourf",
-    cmap=xg.cmaps.temp_div(),
-    levels=21,
-    gridlines=True,
-)
+t2m.xgeo.geoplot(method="contourf", cmap=xg.cmaps.temp_div(), levels=21)
+t2m.xgeo.geoplot(col="time", col_wrap=3)      # facets
+t2m.xgeo.animate(dim="time")
 ```
 
-The functional plotting entry point is `xgeo.plot.geoplot(t2m, ...)`.
+`xg.plot.geoplot(t2m, ...)` is the functional form. Common options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection`, `colorbar`, `colorbar_label`, `colorbar_orientation`) are plain keywords. If `projection` is omitted, it is chosen from the data extent.
 
-Frequently used options (`method`, `cmap`, `vmin`, `vmax`, `levels`, `projection`, `colorbar`, `colorbar_label`, `colorbar_orientation` and others) are plain keywords. Rarely changed settings are grouped into small frozen dataclasses, available from the `xg.plot_options` namespace (`xg.plot_options.Hillshade`, `xg.plot_options.MapFeatures` and so on), and accepted by `geoplot` and `animate` in accessor and functional form. Grouped parameters take an instance of the class, `None`, or a bool where a default group exists (`hillshade=True`, `map_ticks=True`, `clabel=True`). Plain dictionaries are not accepted and raise `TypeError`; construct the class with keyword arguments instead. All fields are keyword-only, named and typed, the classes take no open-ended keyword arguments, and an unknown field raises `TypeError`.
+Facets share axis limits. On `PlateCarree` and `Mercator` maps, only the outer panels get tick labels; set `sharex=False` or `sharey=False` to label every panel.
 
-| Parameter | Class | Fields |
+### Option groups
+
+Less common settings are frozen dataclasses in `xg.plot_options`. Pass an instance, `None`, or `True` where a default exists (`hillshade=True`, `map_ticks=True`, `clabel=True`). Dictionaries raise `TypeError`.
+
+| Keyword | Class | Controls |
 | --- | --- | --- |
-| `colorbar_style` | `ColorbarStyle` | `drawedges`, `minimal_ticks`, `scalar_formatter`, `powerlimits`, `ticks`, `tick_labels`; advanced: `thickness`, `pad`, `pad_with_labels`, `facet_length`, `minimal_ticks_threshold` |
-| `features` | `MapFeatures` | `coastlines`, `borders`, `states`, `ocean`, `land`, `lakes`, `rivers`, `global_extent`, `extent`, `grid_bounds`; advanced: `resolution`, `coastline_color`, `coastline_linewidth`, `coastline_alpha`, `coastline_zorder`, `states_alpha`, `borders_alpha`, `boundary_linestyle`, `boundary_color`, `boundary_linewidth`, `boundary_zorder`, `states_color`, `states_linestyle`, `states_linewidth`, `states_zorder`, `borders_color`, `borders_linestyle`, `borders_linewidth`, `borders_zorder`, `lakes_linewidth`, `rivers_linewidth`, `water_color`, `water_zorder`, `land_color`, `ocean_color`, `background_zorder`, `grid_bounds_linewidth`, `grid_bounds_color`, `grid_bounds_zorder` |
-| `map_ticks` | `MapTicks` | `xbins`, `ybins`; advanced: `direction`, `minor_ticks`, `degree_symbol`, `direction_label`, `top_labels`, `right_labels`, `gridlines`, `gridline_color`, `gridline_linestyle`, `gridline_linewidth`, `gridline_alpha` |
-| `clabel` | `ContourLabels` | `fmt`, `fontsize`, `inline`, `colors`, `levels`, `inline_spacing`, `rightside_up`, `use_clabeltext`, `manual`, `zorder` |
-| `hillshade` | `Hillshade` | `vert_exag`, `azimuth`, `altitude`, `alpha`, `field_alpha`, `cmap`, `spacing`, `method`, `levels`, `vmin`, `vmax`, `fraction`, `zorder_offset`, `rasterized` |
-| `significance` | `xg.plot.Significance` | `pvalues`, `level`, `color`, `alpha`, `marker`, `edgecolors`, `subsample`, `size`, `zorder`, `hatch` |
-| `vectors` | `xg.plot.VectorField` | `u`, `v`, `subsample`, `add_key`, `key_magnitude`, `key_units`, `powerlimits`, `scale`, `scale_units`, `units`, `color`, `width`, `headwidth`, `headlength`, `headaxislength`, `minshaft`, `minlength`, `pivot`, `alpha`, `zorder`, `angles`, `key_fontsize`, `key_gap`, `cmap`, `vmin`, `vmax`, `key_color`, `key_align` |
+| `features` | `MapFeatures` | coastlines, borders, states, ocean, land, lakes, rivers, extent, grid boundary |
+| `map_ticks` | `MapTicks` | tick bins, minor ticks and intervals (`xminor`, `yminor`), gridlines, label placement |
+| `colorbar_style` | `ColorbarStyle` | thickness, padding, tick thinning, formatter |
+| `clabel` | `ContourLabels` | contour label format and placement |
+| `hillshade` | `Hillshade` | sun angle, exaggeration, relief method and opacity |
+| `significance` | `xg.plot.Significance` | stippling or hatching where `pvalues < level` |
+| `vectors` | `xg.plot.VectorField` | quiver arrows, key and magnitude colormap |
 
-`VectorField` and `Significance` carry data (the vector components, the p-values) rather than options, so they are `xg.plot.VectorField` and `xg.plot.Significance`, not part of `xg.plot_options`. The fields marked advanced, and the `None`-valued fields of `VectorField`, keep the plotting defaults when left unset, so existing calls are unchanged.
+`Significance` and `VectorField` carry data, so they sit in `xg.plot`. All fields are keyword-only and documented in the docstrings.
 
-Fields of `MapFeatures`, `MapTicks` and `ColorbarStyle` are declared with `option(default)`: each starts as `UNSET` and takes its declared default only if no layer sets it. The default is written once, on the field (`xbins: int = option(5)`), and `defaults()` reads it from there. Values are layered, later layers winning: the declared defaults, the map theme preset, `set_options`, then the keyword in the plotting call. A field you do not set therefore never overrides the theme, so `MapFeatures(lakes=True)` leaves `borders=False` of the `ferret`, `grads` and `gmt` themes in place.
+Unset fields never override a lower layer. Values resolve in this order, later wins: field defaults, map theme, `set_options`, the plotting call. An explicit `None` is a value that selects the callee default.
 
-An explicit `None` is a value, not "unset": it overrides lower layers and selects the callee default, so `ColorbarStyle(edgecolor=None)` cancels the edge colour of a preset. On a field that has a declared default, such as `coastlines` or `xbins`, `None` replaces that default; pass `False` or a number instead. The fields of an instance you build yourself read `UNSET` until set. The options a plot uses are resolved, so every field then holds a value.
+```python
+t2m.xgeo.geoplot(
+    features=xg.plot_options.MapFeatures(states=False, lakes=True),
+    map_ticks=xg.plot_options.MapTicks(xbins=4),
+    colorbar_style=xg.plot_options.ColorbarStyle(thickness=0.03),
+    significance=xg.plot.Significance(pvalues=pval, level=0.05, hatch="///"),
+    vectors=xg.plot.VectorField(u=u10, v=v10, subsample=(4, 4)),
+)
+```
 
 ### Standing options
 
-Style defaults that do not depend on the data are set once with `xg.plot.set_options`, globally or for a `with` block, in the manner of `xarray.set_options`. There is no `map_theme` keyword in `geoplot` or `animate`.
-
 ```python
-xg.plot.set_options(map_theme="ncl")            # until changed again
-
-with xg.plot.set_options(map_theme="gmt", features=xg.plot_options.MapFeatures(lakes=True)):
-    xg.plot.geoplot(da)                         # gmt theme, lakes on
-
-xg.plot.get_options()                           # current values
+xg.plot.set_options(map_theme="ncl")                  # until changed
+with xg.plot.set_options(map_theme="gmt", rc={"font.family": "serif"}):
+    xg.plot.geoplot(t2m)
+xg.plot.get_options()
 ```
 
-| Option | Value | Effect |
-| --- | --- | --- |
-| `map_theme` | `"default"`, `"ncl"`, `"ferret"`, `"grads"`, `"gmt"` or a `MapTheme` | Style preset. Change its font or any other rc parameter with the `rc` option below. |
-| `features`, `colorbar_style`, `map_ticks` | option instance or `None` | Standing defaults applied over the preset and overridden by the plotting call. |
-| `rc` | mapping | Matplotlib rc parameters, including the font, applied only while a plot is built or extended (`plot.add.*`), then restored. They override the preset's `rc`. |
+| Option | Value |
+| --- | --- |
+| `map_theme` | `"default"`, `"ncl"`, `"ferret"`, `"grads"`, `"gmt"` or a `MapTheme` |
+| `features`, `colorbar_style`, `map_ticks` | default option instances |
+| `rc` | Matplotlib rc parameters, applied while a plot is built; they override the theme |
 
-The `ncl` and `gmt` presets request a Helvetica-like font through a `font.family` list (Liberation Sans, Arial, Helvetica, DejaVu Sans). Only installed families are used and nothing is downloaded. While a plot is built, the preset's `rc` overrides a global `xg.plot.theme(...)`, so `theme(font_family="serif")` does not change the font of an `ncl` or `gmt` map; use `set_options(rc={"font.family": "serif"})` for that. A plot keeps the rc parameters it was created with, so a colorbar added later matches the plot even if `set_options` has changed since. `animate` carries the current options into its worker processes.
+### Overlays
 
-The `states_*` and `borders_*` fields style the two boundary layers separately and fall back to the shared `boundary_*` value when `None`. `gridline_*` apply when `gridlines` is true. `Significance(hatch="///")` replaces stippling with a hatch drawn over the region where `pvalues < level` (all non-missing `pvalues` when `level` is `None`); `color` and `edgecolors` set the hatch colour and `marker`, `size` and `subsample` are then ignored. `VectorField(cmap=...)` colours the arrows by magnitude on a normalisation shared by all panels and frames (`vmin` defaults to 0, `vmax` to the maximum magnitude), is mutually exclusive with `color`, and gives a mappable for `plot.add.colorbar(plot.quiver)`. `key_color` sets the key arrow and label colour and `key_align` (`"left"`, `"center"` or `"right"`) its horizontal position under the axes.
-
-`animate` accepts `significance=` as well as `vectors=`, with `pvalues` sharing the animation dimension of the data, and `title` as a string or a dictionary whose `label` is the title text and whose other keys are Matplotlib text properties. `GeoPlot.add.colorbar(style=ColorbarStyle(...))` overrides the plot-level `colorbar_style` for one colorbar, including `thickness`, `pad`, `pad_with_labels`, `facet_length` and `minimal_ticks_threshold`. `xg.plot.theme(font_family="serif")` sets the font family of the theme.
+`GeoPlot.add` draws on every panel, records the layers in `GeoPlot.layers` and can be chained.
 
 ```python
-ds["topo"].xgeo.geoplot(
-    cmap="terrain",
-    features=xg.plot_options.MapFeatures(states=False, lakes=True),
-    colorbar_style=xg.plot_options.ColorbarStyle(scalar_formatter=False),
-    map_ticks=xg.plot_options.MapTicks(xbins=4),
-)
-t2m.xgeo.geoplot(
-    method="contour",
-    clabel=xg.plot_options.ContourLabels(fmt="%.1f", fontsize=7),
-    vectors=xg.plot.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), color="k"),
-)
-plot = t2m.xgeo.geoplot(
-    map_ticks=xg.plot_options.MapTicks(gridlines=True, gridline_color="k", gridline_alpha=0.3),
-    significance=xg.plot.Significance(pvalues=pval, level=0.05, hatch="///"),
-    vectors=xg.plot.VectorField(u=ds["u10"], v=ds["v10"], subsample=(4, 4), cmap="viridis"),
-)
-plot.add.colorbar(plot.quiver, label="m s-1", style=xg.plot_options.ColorbarStyle(thickness=0.03))
+plot = t2m.xgeo.geoplot(method="pcolormesh")
+plot.add.contour(t2m, levels=5, clabel=xg.plot_options.ContourLabels(fmt="%.0f")).add.grid_boundary()
 ```
 
-Enable hillshade to draw grayscale relief beneath a semitransparent scalar field:
+Available: `plot`, `pcolormesh`, `contourf`, `contour`, `imshow`, `scatter`, `quiver`, `significance`, `colorbar`, `grid_boundary`.
+
+### Hillshade
 
 ```python
-ds["topo"].xgeo.geoplot(hillshade=True, cmap="terrain", robust=True)
-ds["topo"].xgeo.geoplot(
-    hillshade=xg.plot_options.Hillshade(azimuth=270, altitude=35, vert_exag=2), cmap="terrain"
-)
-ds["topo"].xgeo.animate(dim="time", hillshade=True, cmap="terrain", robust=True)
+topo.xgeo.geoplot(hillshade=True, cmap="terrain", robust=True)
+topo.xgeo.geoplot(hillshade=xg.plot_options.Hillshade(azimuth=270, altitude=35, vert_exag=2))
 ```
 
-`Hillshade` defaults to azimuth 315 and altitude 45 degrees, vertical exaggeration 1 and `spacing="auto"`. The surface gradient needs the horizontal cell size in the unit of the elevation. With `"auto"`, a degree grid is converted to metres from the mean cell step and the mean latitude, and projected coordinates in metres or kilometres are used as metres, so the elevation is assumed to be in metres. Grids with other or unknown units fall back to `"pixel"` (unit spacing), which makes the shading depend on grid resolution; pass `spacing=(dx, dy)` to set it explicitly. `alpha` is the opacity of the grayscale layer (default 1) and `field_alpha` the opacity given to the field (default 0.65, `None` to leave it unchanged, an explicit `alpha=` argument takes precedence). The field keeps its colormap and colorbar. Shading is computed per facet and animation frame with Matplotlib's `LightSource`.
+The default sun is at azimuth 315 and altitude 45 degrees. With `spacing="auto"`, degree grids are converted to metres and the elevation is assumed to be in metres. Other grids fall back to unit spacing, so pass `spacing=(dx, dy)` for correct shading. `compute_hillshade` and `hillshade_spacing` in `xgeo.viz.primitives` give the array directly.
 
-The relief layer has its own plotting method, independent of the field: `Hillshade(method="pcolormesh")` (the default, `"default"`, gives the same result), `"imshow"` or `"contourf"`, with `levels` setting the bands of `"contourf"`. `vmin` and `vmax` (default 0 and 1) set the illumination range mapped to `cmap`, `fraction` the contrast of the shading, `zorder_offset` how far below the field the relief is drawn (default 0.1) and `rasterized` overrides the field's setting for the relief. On a map whose projection is centred away from 0 degrees longitude, `"imshow"` is placed correctly only when `MapFeatures(extent=...)` is set, which also holds for `method="imshow"` of the field itself.
+### Layout
 
-The computation is also available separately for a two-dimensional `(y, x)` field:
-
-```python
-from xgeo.viz.primitives import compute_hillshade, hillshade_spacing
-
-dx, dy = hillshade_spacing(ds["topo"], x="lon", y="lat")
-shaded = compute_hillshade(ds["topo"], z_factor=1, dx=dx, dy=dy)
-```
+| Module | Contents |
+| --- | --- |
+| [`viz/plot.py`](viz/plot.py) | `GeoPlot`, `FacetedPlot`, `Adder`, `Animate`, `geoplot`, `animate`, `colorbar`, `theme` |
+| [`viz/primitives.py`](viz/primitives.py) | stateless drawing functions (`plot_field`, `plot_quiver`, `plot_significance`) and helpers |
+| [`viz/options.py`](viz/options.py) | option dataclasses, `set_options`, `resolve_options` |
+| [`viz/cmaps.py`](viz/cmaps.py) | IPCC, Matplotlib and cmocean palettes |
 
 ## Geospatial and statistical tools
 
 ```python
-regridded = ds.xgeo.regrid(target_grid, method="bilinear")
-coarse = ds.xgeo.regrid(1.0, method="conservative")
-curvilinear = ds_2d.xgeo.regrid(
-    0.25, lat="lat", lon="lon", lat_b="lat_b", lon_b="lon_b"
-)
-wrapped = ds.xgeo.wrap_lon(convention="-180/180")
-with_lst = ds.xgeo.add_local_solar_time()
-trend = ds["t2m"].xgeo.trends(dim="time")
-correlation = ds["t2m"].xgeo.corr(other, dim="time")
+ds.xgeo.regrid(target_grid, method="bilinear")
+ds.xgeo.regrid(1.0, method="conservative")               # 1 degree grid
+ds_2d.xgeo.regrid(0.25, lat="lat", lon="lon", lat_b="lat_b", lon_b="lon_b")   # curvilinear
+ds.xgeo.wrap_lon(convention="-180/180")
+ds.xgeo.add_local_solar_time()
+ds["t2m"].xgeo.trends(dim="time")
+ds["t2m"].xgeo.corr(other, dim="time")
 ```
 
-The functional APIs live in `xgeo.xr_utils` (`regrid`, `mask`, `fillgaps`, `sel_transect`, `wrap_lon`, `add_cyclic_point`, `add_local_solar_time`) and `xgeo.stats`. `regrid` takes a target grid as a Dataset or DataArray with one-dimensional `lat` and `lon` coordinates, or as a resolution in degrees spanning the source extent. Coordinate names are set with `lat` and `lon`. Passing both `lat_b` and `lon_b` marks the source as a two-dimensional (curvilinear) grid; the bounds may be cell corners `(ny + 1, nx + 1)` or CF bounds `(ny, nx, 4)`. The output is always a one-dimensional latitude-longitude grid with the bounds dropped. Regridding imports `xesmf` on first use. See [`core/accessors.py`](core/accessors.py), [`core/xr_utils.py`](core/xr_utils.py), and [`core/stats.py`](core/stats.py) for signatures.
-
-Serial NetCDF I/O uses Xarray's native interface, such as `ds.to_netcdf("output.nc")`. The former MPI-backed `.xgeo.append()` and `.xgeo.to_netcdf()` methods and top-level MPI aliases are removed. Use [`xrmpi`](../xrmpi/README.md) directly for distributed arrays and collective NetCDF I/O; xgeo does not import or install it.
-
-## Plotting and colormaps
-
-Plotting is split into three modules under [`viz/`](viz/):
-
-* [`viz/plot.py`](viz/plot.py) holds the stateful classes and entry points: `GeoPlot` (figure, axes and every primitive it creates), `FacetedPlot` (facet layout), `Adder` (overlays, available as `GeoPlot.add`), `Animate` and the functions `geoplot`, `animate`, `theme`, `colorbar` and `create_figure`.
-* [`viz/primitives.py`](viz/primitives.py) holds the stateless drawing functions (`plot_field`, `plot_quiver`, `plot_significance`) and the input and colormap helpers. `plot_field(method, data, fig, ax, ...)` is the one function behind the base layer and every scalar overlay, for `"default"`, `"pcolormesh"`, `"contourf"`, `"contour"`, `"imshow"` and `"scatter"`. It sends `levels`, `extend`, `robust` and `rasterized` only to the methods that use them and forwards every other keyword to xarray or Matplotlib. `"scatter"` also accepts an `(x, y)` tuple of arrays.
-* [`viz/options.py`](viz/options.py) holds the option dataclasses described above, the `option(default)` field declaration that holds each layered default, `set_options` and `resolve_options`.
-
-Overlays are added to an existing plot with `GeoPlot.add` and can be chained. Each call draws on every panel of a faceted plot, records its primitives in `GeoPlot.layers` and returns the plot:
-
-```python
-plot = t2m.xgeo.geoplot(method="pcolormesh", features=xg.plot_options.MapFeatures(states=False))
-plot.add.contour(t2m, levels=5, clabel=xg.plot_options.ContourLabels(fmt="%.0f")).add.grid_boundary()
-```
-
-The scalar overlays are `add.plot`, `add.pcolormesh`, `add.contourf`, `add.contour`, `add.imshow` and `add.scatter`, which accepts an `xarray.DataArray` or an `(x, y)` tuple of arrays. `add.quiver`, `add.significance`, `add.colorbar` and `add.grid_boundary` complete the set.
-
-[`viz/cmaps.py`](viz/cmaps.py) provides palettes from the local IPCC tables, Matplotlib, and cmocean.
-
-```python
-from xgeo import cmaps
-
-cmap = cmaps.temp_div()
-```
+`regrid` needs `xesmf`. The target is a grid with 1D `lat` and `lon` or a resolution in degrees. Giving both `lat_b` and `lon_b` marks the source as curvilinear, with corner `(ny + 1, nx + 1)` or CF `(ny, nx, 4)` bounds. The output is always a 1D latitude-longitude grid. Functional versions are in `xgeo.xr_utils` (`regrid`, `mask`, `fillgaps`, `sel_transect`, `wrap_lon`, `add_cyclic_point`, `add_local_solar_time`) and `xgeo.stats`.
 
 ## Storage
 
-XNpy stores save NumPy, pandas, and Xarray objects as `.npy` payloads with a JSON manifest. The matching readers support memory mapping.
+XNpy stores NumPy, pandas and Xarray objects as `.npy` files with a JSON manifest, and reads them memory-mapped.
 
 ```python
-import xgeo as xg
-
 xg.xnpy.save(ds, "run_001")
-restored = xg.xnpy.open_dataset("run_001")
+ds = xg.xnpy.open_dataset("run_001")
 ```
 
-See [`core/xnpy.py`](core/xnpy.py) for storage options.
+Serial NetCDF I/O uses Xarray directly (`ds.to_netcdf(...)`). For parallel I/O use `xrmpi`, which xgeo does not import.
 
-## Package overview
+## Namespaces
 
 | Namespace | Purpose |
 | --- | --- |
-| `xgeo` | Light shared utilities only (`LockedLogger`, `LockFile`, `RedirectStreams`, `locked_print`, `exclude_key`, `nproc`) |
-| `xgeo.plot` | Cartopy geographic plotting |
-| `xgeo.stats` | Trends, correlations, and significance testing |
-| `xgeo.cmaps` | Scientific colormaps |
-| `xgeo.xr_utils` | Regridding, masking, gap filling, transects, longitude wrapping, local solar time |
-| `xgeo.xnpy` | Memory-mapped array storage (`save`, `open_dataset`, `open_dataframe`, `load_array`) |
-| `xgeo.preprocess` | ERA5, IMERG, CMORPH, and GPCP preprocessing |
+| `xgeo.plot` | Cartopy plotting |
+| `xgeo.stats` | trends, correlations, significance tests |
+| `xgeo.cmaps` | colormaps |
+| `xgeo.xr_utils` | regridding, masking, gap filling, transects, longitude wrapping, local solar time |
+| `xgeo.xnpy` | memory-mapped storage (`save`, `open_dataset`, `open_dataframe`, `load_array`) |
+| `xgeo.preprocess` | ERA5, IMERG, CMORPH and GPCP preprocessing |
 | `xgeo.grib_io` | GRIB input and output |
-| `xrmpi` | Separate package for distributed arrays and parallel I/O |
-
-## Links
-
-* [Environment specification](env/env.yaml)
-* [Xarray accessors](core/accessors.py)
-* [Plotting source](viz/plot.py)
-* [MPI package](../xrmpi/README.md)
-* [License](LICENSE)
 
 Distributed under the [MIT License](LICENSE).

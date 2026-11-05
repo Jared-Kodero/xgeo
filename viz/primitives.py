@@ -36,7 +36,12 @@ from matplotlib.colors import (
 )
 from matplotlib.figure import Figure
 from matplotlib.quiver import QuiverKey
-from matplotlib.ticker import FixedLocator, MaxNLocator, ScalarFormatter
+from matplotlib.ticker import (
+    AutoMinorLocator,
+    FixedLocator,
+    MaxNLocator,
+    ScalarFormatter,
+)
 from matplotlib.transforms import Bbox
 from xarray.plot.facetgrid import FacetGrid
 
@@ -1059,6 +1064,8 @@ def add_xy_ticks(
     y: str = "lat",
     direction: Literal["out", "in", "inout"] = "out",
     minor_ticks: bool = False,
+    xminor: int | None = None,
+    yminor: int | None = None,
     major_tick_length: float | None = None,
     major_tick_width: float | None = None,
     minor_tick_length: float | None = None,
@@ -1069,6 +1076,8 @@ def add_xy_ticks(
     direction_label: bool = False,
     top_labels: bool = False,
     right_labels: bool = False,
+    bottom_labels: bool = True,
+    left_labels: bool = True,
     gridlines: bool = False,
     gridline_color: str | None = None,
     gridline_linestyle: str | None = None,
@@ -1096,6 +1105,8 @@ def add_xy_ticks(
         Tick-mark direction.
     minor_ticks : bool, default False
         Show minor ticks.
+    xminor, yminor : int, optional
+        Minor intervals per major interval. Requires ``minor_ticks``.
     major_tick_length, minor_tick_length : float, optional
         Major and minor tick lengths in points.
     major_tick_width, minor_tick_width : float, optional
@@ -1108,6 +1119,8 @@ def add_xy_ticks(
         Append the hemisphere letter (N, S, E, W) to the labels.
     top_labels, right_labels : bool, default False
         Label the top and right edges as well as the bottom and left edges.
+    bottom_labels, left_labels : bool, default True
+        Label the bottom and left edges.
     gridlines : bool, default False
         Draw grid lines through the ticks.
     gridline_color : str, optional
@@ -1160,6 +1173,10 @@ def add_xy_ticks(
     )
     if minor_ticks:
         ax.minorticks_on()
+        if xminor is not None:
+            ax.xaxis.set_minor_locator(AutoMinorLocator(xminor))
+        if yminor is not None:
+            ax.yaxis.set_minor_locator(AutoMinorLocator(yminor))
     else:
         ax.minorticks_off()
 
@@ -1170,6 +1187,8 @@ def add_xy_ticks(
         ax.set_yticks(yticks, crs=ccrs.PlateCarree())
         ax.xaxis.set_major_formatter(LongitudeFormatter(**fmt_opts))
         ax.yaxis.set_major_formatter(LatitudeFormatter(**fmt_opts))
+        ax.tick_params(axis="x", labelbottom=bottom_labels)
+        ax.tick_params(axis="y", labelleft=left_labels)
         if top_labels:
             ax.tick_params(axis="x", top=True, labeltop=True)
         if right_labels:
@@ -1193,6 +1212,8 @@ def add_xy_ticks(
     )
     gridliner.top_labels = top_labels
     gridliner.right_labels = right_labels
+    gridliner.bottom_labels = bottom_labels
+    gridliner.left_labels = left_labels
     gridliner.xlines = gridlines
     gridliner.ylines = gridlines
     gridliner.xformatter = LongitudeFormatter(**fmt_opts)

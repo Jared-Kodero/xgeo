@@ -866,7 +866,7 @@ class MapTheme:
         """Use GMT-inspired four-sided geographic annotations and ticks."""
         return cls(
             MapFeatures(
-                linewidth=1.2,
+                linewidth=1.65,
                 edgecolor="0.1",
                 coastline_linewidth=0.7,
                 coastline_color="0.1",
@@ -877,7 +877,7 @@ class MapTheme:
                 direction="out",
                 minor_ticks=True,
                 major_tick_length=6.0,
-                major_tick_width=0.9,
+                major_tick_width=0.55,
                 minor_tick_length=3.0,
                 minor_tick_width=0.6,
                 top_ticks=True,

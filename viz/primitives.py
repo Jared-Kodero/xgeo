@@ -1746,7 +1746,22 @@ def get_cax(
             bar = 0.03 if thickness is None else thickness
             bottommost = y0
             height = y_len
-            rightmost = x1 + gap * scale_w
+            renderer = fig.canvas.get_renderer()
+            axes_box = ax.get_window_extent(renderer)
+            labels_x1 = max(
+                (
+                    box.x1
+                    for tick in ax.yaxis.get_major_ticks()
+                    if tick.label2.get_visible()
+                    and tick.label2.get_text()
+                    and axes_box.y0
+                    <= (box := tick.label2.get_window_extent(renderer)).y0
+                    <= axes_box.y1
+                ),
+                default=0.0,
+            )
+            labels_x1 /= fig.bbox.width
+            rightmost = max(x1, labels_x1) + gap * scale_w
             width = bar * scale_w
             cax = fig.add_axes([rightmost, bottommost, width, height])
 

@@ -1088,7 +1088,7 @@ def resolve_options(
         colorbar_style=resolved_colorbar,
         features=resolved_features,
         hillshade=Hillshade.coerce(hillshade),
-        contor_labels=contour_labels,
-        map_tiucks=resolved_ticks,
+        contour_labels=contour_labels,
+        map_ticks=resolved_ticks,
         rc=map_rc(),
     )

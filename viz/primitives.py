@@ -103,7 +103,8 @@ __all__ = [
     "validate_facets",
     "validate_vector_components",
 ]
-
+#: Mean Earth radius in metres (IUGG), used to convert degree grids to metres.
+EARTH_RADIUS_M = 6371008.8
 
 mpl_default_backend = matplotlib.get_backend()
 mpl_backend_changed = False
@@ -164,10 +165,6 @@ def validate_data(data: xr.DataArray) -> xr.DataArray:
     if data.size == 0:
         raise ValueError("data must contain at least one value")
     return data
-
-
-#: Mean Earth radius in metres (IUGG), used to convert degree grids to metres.
-EARTH_RADIUS_M = 6371008.8
 
 
 def hillshade_spacing(

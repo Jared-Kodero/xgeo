@@ -789,7 +789,7 @@ class MapTheme:
                 major_tick_width=0.9,
                 minor_tick_length=4.0,
                 minor_tick_width=0.4,
-                top_ticks=True,
+                top_ticks=False,
                 right_ticks=True,
                 degree_symbol="°",
                 direction_label=True,
@@ -979,8 +979,7 @@ class set_options:
         unknown = options.keys() - OPTIONS.keys()
         if unknown:
             raise ValueError(
-                f"unknown option(s) {sorted(unknown)}; valid options are "
-                f"{sorted(OPTIONS)}"
+                f"unknown option(s) {sorted(unknown)}; valid options are {sorted(OPTIONS)}"
             )
         for key, value in options.items():
             if not _VALIDATORS[key](value):
@@ -1089,7 +1088,7 @@ def resolve_options(
         colorbar_style=resolved_colorbar,
         features=resolved_features,
         hillshade=Hillshade.coerce(hillshade),
-        contour_labels=contour_labels,
-        map_ticks=resolved_ticks,
+        contor_labels=contour_labels,
+        map_tiucks=resolved_ticks,
         rc=map_rc(),
     )

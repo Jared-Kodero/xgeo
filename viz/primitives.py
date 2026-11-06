@@ -1211,6 +1211,8 @@ def add_xy_ticks(
     gridliner.right_labels = right_labels
     gridliner.bottom_labels = bottom_labels
     gridliner.left_labels = left_labels
+    gridliner.x_inline = False
+    gridliner.y_inline = False
     gridliner.xlines = gridlines
     gridliner.ylines = gridlines
     gridliner.xformatter = LongitudeFormatter(**fmt_opts)

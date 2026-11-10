@@ -54,6 +54,7 @@ from .primitives import (
     add_grid_boundary,
     add_map_features,
     add_xy_ticks,
+    clip_grid,
     colorbar,
     enable_interactive_features,
     fmt_anim_title,
@@ -494,6 +495,8 @@ class FacetedPlot:
         self.contour_labels: list[list[Text]] = []
         self.map_features: list[Artist] = []
         grid = data.coords.to_dataset()[[self.x, self.y]]
+        if features.extent is not None:
+            grid = clip_grid(grid, self.x, self.y, features.extent)
         axes_flat = list(self.axes.flat)
         for index, axis in enumerate(axes_flat):
             if index >= len(selectors):
@@ -903,6 +906,8 @@ class GeoPlot:
             self.colorbar_style: ColorbarStyle = style
             self.faceted_plot: FacetedPlot | None = None
             self.grid: xr.Dataset = self.data.coords.to_dataset()[[self.x, self.y]]
+            if map_options.extent is not None:
+                self.grid = clip_grid(self.grid, self.x, self.y, map_options.extent)
             self.add = Adder(self)
 
             cmap_params = resolve_cmap_params(

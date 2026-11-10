@@ -81,6 +81,7 @@ __all__ = [
     "add_map_features",
     "add_xy_ticks",
     "center_zero_white",
+    "clip_grid",
     "colorbar",
     "compute_hillshade",
     "format_scalar",
@@ -1050,6 +1051,24 @@ def add_contour_labels(
 from matplotlib.figure import Figure
 
 
+def clip_grid(
+    grid: xr.Dataset, x: str, y: str, extent: tuple[float, float, float, float]
+) -> xr.Dataset:
+    """Restrict a longitude-latitude grid to ``(lon_min, lon_max, lat_min, lat_max)``.
+
+    One-dimensional coordinates are sliced; two-dimensional coordinates are masked
+    with NaN outside the extent.
+    """
+
+    lon_min, lon_max, lat_min, lat_max = extent
+    lon, lat = grid[x], grid[y]
+    if lon.ndim == 1 and lat.ndim == 1:
+        return grid.sel({x: slice(lon_min, lon_max), y: slice(lat_min, lat_max)})
+
+    inside = (lon >= lon_min) & (lon <= lon_max) & (lat >= lat_min) & (lat <= lat_max)
+    return grid.reset_coords().where(inside)
+
+
 def add_xy_ticks(
     fig: Figure,
     ax: cgeo.GeoAxes,
@@ -1215,6 +1234,7 @@ def add_xy_ticks(
     gridliner.y_inline = False
     gridliner.xlines = gridlines
     gridliner.ylines = gridlines
+    gridliner.rotate_labels = False
     gridliner.xformatter = LongitudeFormatter(**fmt_opts)
     gridliner.yformatter = LatitudeFormatter(**fmt_opts)
 

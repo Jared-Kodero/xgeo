@@ -1,7 +1,7 @@
 """xgeo: geospatial analysis, plotting, and storage for climate data.
 
 The top level holds only the light shared utilities: ``LockedLogger``,
-``LockFile``, ``RedirectStreams``, ``locked_print``, ``exclude_key`` and
+``LockFile``, ``locked_print``, ``exclude_key`` and
 ``nproc``. Everything else is reached through its module:
 
 - ``plot``      Cartopy map plotting. Entry point :func:`xgeo.plot.geoplot`.
@@ -61,7 +61,6 @@ from .core.accessors import fix_xarray
 from .core.climtools import (
     LockedLogger,
     LockFile,
-    RedirectStreams,
     apply_widget_css,
     exclude_key,
     locked_print,
@@ -88,7 +87,6 @@ warnings.filterwarnings("always", module=r"xgeo\..*")
 __all__ = [
     "LockFile",
     "LockedLogger",
-    "RedirectStreams",
     "climtools",
     "cmaps",
     "exclude_key",

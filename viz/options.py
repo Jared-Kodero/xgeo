@@ -478,6 +478,13 @@ class ColorbarStyle(Option):
         Length of the colorbar as a fraction of the panel grid when the grid has
         more than one row (vertical colorbar) or more than one column (horizontal
         colorbar), in (0, 1]. Default 0.5.
+    length : float, optional
+        Length of a horizontal colorbar as a fraction of the axes width (or of
+        the panel grid width), in (0, 1]. Overrides ``facet_length``. Default is
+        the full axes width for a single panel.
+    align : {"center", "left", "right"}, optional
+        Placement of a horizontal colorbar below the axes or panel grid; visible
+        when ``length`` is below 1. Default "center".
     minimal_ticks_threshold : int, optional
         Number of colour boundaries above which ``minimal_ticks`` thins the
         labels. Default 6.
@@ -502,6 +509,8 @@ class ColorbarStyle(Option):
     pad: float | None = option()
     pad_with_labels: float | None = option()
     facet_length: float | None = option()
+    length: float | None = option()
+    align: Literal["center", "left", "right"] | None = option()
     minimal_ticks_threshold: int | None = option()
     linewidth: float | None = option()
     edgecolor: str | None = option()
@@ -526,8 +535,12 @@ class ColorbarStyle(Option):
                 raise ValueError(f"{name} must be non-negative and finite")
         if self.get("thickness") == 0.0:
             raise ValueError("thickness must be positive")
-        if (length := self.get("facet_length")) is not None and not 0.0 < length <= 1.0:
-            raise ValueError("facet_length must lie in (0, 1]")
+        for name in ("facet_length", "length"):
+            value = self.get(name)
+            if value is not None and not 0.0 < value <= 1.0:
+                raise ValueError(f"{name} must lie in (0, 1]")
+        if self.get("align") not in (None, "center", "left", "right"):
+            raise ValueError("align must be 'center', 'left' or 'right'")
         if (threshold := self.get("minimal_ticks_threshold")) is not None and (
             isinstance(threshold, bool)
             or not isinstance(threshold, Integral)
@@ -549,6 +562,8 @@ class ColorbarStyle(Option):
                 "pad",
                 "pad_with_labels",
                 "facet_length",
+                "length",
+                "align",
                 "minimal_ticks_threshold",
                 "linewidth",
                 "edgecolor",

@@ -1652,6 +1652,9 @@ def get_projection(
     return projection_class(**options), projection
 
 
+_ALIGN = {"left": 0.0, "center": 0.5, "right": 1.0}
+
+
 def get_cax(
     *,
     fig: plt.Figure = None,
@@ -1664,6 +1667,8 @@ def get_cax(
     pad: float | None = None,
     pad_with_labels: float | None = None,
     facet_length: float = 0.5,
+    length: float | None = None,
+    align: Literal["center", "left", "right"] = "center",
 ) -> plt.Axes:
     """
     Create a new set of axes for a colorbar by stealing space from ``axes``.
@@ -1698,6 +1703,13 @@ def get_cax(
     facet_length : float, default 0.5
         Fraction of the panel grid spanned by the colorbar when there is more
         than one row (vertical) or column (horizontal).
+    length : float, optional
+        Length of a horizontal colorbar as a fraction of the axes width (or of
+        the panel grid width), in (0, 1]. Overrides ``facet_length`` and, for a
+        single panel, the default of the full axes width.
+    align : {"center", "left", "right"}, default "center"
+        Horizontal placement of a horizontal colorbar below the axes or panel
+        grid. Only visible when the bar is shorter than the span it aligns to.
 
     Returns
     -------
@@ -1806,7 +1818,9 @@ def get_cax(
         pos = axes.get_position()
         fig_x_len = pos.x1 - pos.x0
         fig_y_len = pos.y1 - pos.y0
-        cax = _create_cax(pos.y0, pos.x0, pos.y1, pos.x1, fig_x_len, fig_y_len, axes)
+        x_len = fig_x_len * (length or 1.0)
+        x0 = pos.x0 + _ALIGN[align] * (fig_x_len - x_len)
+        cax = _create_cax(pos.y0, x0, pos.y1, pos.x1, x_len, fig_y_len, axes)
         plt.sca(axes)
         return cax
 
@@ -1851,11 +1865,13 @@ def get_cax(
     # Horizontal colorbar: use one axis width for at most two columns.
     # For larger grids, use 50% of the grid width and center the bar.
     if ncols > 1:
-        horizontal_x_len = facet_length * grid_x_len
+        span_left, span_len = grid_left, grid_x_len
+        horizontal_x_len = (length or facet_length) * grid_x_len
     else:
-        horizontal_x_len = right_bot_ax.x1 - right_bot_ax.x0
+        span_left, span_len = right_bot_ax.x0, right_bot_ax.x1 - right_bot_ax.x0
+        horizontal_x_len = (length or 1.0) * span_len
 
-    horizontal_x0 = 0.5 * (grid_left + grid_right) - 0.5 * horizontal_x_len
+    horizontal_x0 = span_left + _ALIGN[align] * (span_len - horizontal_x_len)
 
     cax = _create_cax(
         vertical_y0,
@@ -2015,6 +2031,8 @@ def colorbar(
     pad: float | None = None,
     pad_with_labels: float | None = None,
     facet_length: float = 0.5,
+    length: float | None = None,
+    align: Literal["center", "left", "right"] = "center",
     minimal_ticks_threshold: int = 6,
     linewidth: float | None = None,
     edgecolor: str | None = None,
@@ -2078,7 +2096,7 @@ def colorbar(
     scalar_formatter : bool, default True
         Format automatic tick labels with a math-text ``ScalarFormatter`` using
         *powerlimits*. If False, keep the default Matplotlib formatter.
-    thickness, pad, pad_with_labels, facet_length : optional
+    thickness, pad, pad_with_labels, facet_length, length, align : optional
         Size and placement of an automatically created colorbar axis; see
         :func:`get_cax`. Ignored when *cax* is given.
     minimal_ticks_threshold : int, default 6
@@ -2144,6 +2162,8 @@ def colorbar(
             pad=pad,
             pad_with_labels=pad_with_labels,
             facet_length=facet_length,
+            length=length,
+            align=align,
         )
         cax.set_label("<colorbar>")
 

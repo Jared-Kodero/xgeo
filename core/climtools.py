@@ -314,7 +314,7 @@ def locked_print(
     """
     if lockfile is None:
         raise ValueError(
-            "We need a lockfile obj:\n(e.g., xgeo.LockFile, threading.Lock...)"
+            "Expected a lockfile object for the `lockfile` argument (e.g., xgeo.LockFile or threading.Lock), got None."
         )
 
     with lockfile:

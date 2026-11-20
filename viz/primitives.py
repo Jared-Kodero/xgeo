@@ -1665,7 +1665,7 @@ def get_cax(
     pad_bottom: bool | None = None,
     thickness: float | None = None,
     pad: float | None = None,
-    pad_with_labels: float | None = None,
+    label_pad: float | None = None,
     facet_length: float = 0.5,
     length: float | None = None,
     align: Literal["center", "left", "right"] = "center",
@@ -1697,9 +1697,11 @@ def get_cax(
     pad : float, optional
         Gap between the axes and the colorbar, in the same units as
         ``thickness``. Default 0.04 (vertical) or 0.05 (horizontal).
-    pad_with_labels : float, optional
-        Gap below the axes of a horizontal colorbar that has tick labels or an
-        x-axis label there. Default ``pad + 0.05`` (0.1 for the default ``pad``).
+    label_pad : float, optional
+        Fixed gap below the axes of a horizontal colorbar that has tick labels or
+        an x-axis label there, in the same units as ``thickness``. Default
+        ``None`` measures the rendered tick labels and x-axis label, so the
+        colorbar sits ``pad`` below them at any font size.
     facet_length : float, default 0.5
         Fraction of the panel grid spanned by the colorbar when there is more
         than one row (vertical) or column (horizontal).
@@ -1802,13 +1804,22 @@ def get_cax(
         elif orientation == "horizontal":
             y_pad = 0.05 if pad is None else pad
 
-            if needs_bottom_padding:
-                y_pad = y_pad + 0.05 if pad_with_labels is None else pad_with_labels
-
             bar = 0.04 if thickness is None else thickness
+            top = y0
+            if needs_bottom_padding and label_pad is None:
+                renderer = fig.canvas.get_renderer()
+                top = (
+                    ax.xaxis.get_tightbbox(renderer)
+                    .transformed(fig.transFigure.inverted())
+                    .y0
+                )
+                y_pad += bar
+            elif needs_bottom_padding:
+                y_pad = label_pad
+
             rightmost = x0
             width = x_len
-            bottommost = y0 - y_pad * scale_h
+            bottommost = min(top, y0) - y_pad * scale_h
             height = bar * scale_h
             cax = fig.add_axes([rightmost, bottommost, width, height])
 
@@ -2029,7 +2040,7 @@ def colorbar(
     scalar_formatter: bool = True,
     thickness: float | None = None,
     pad: float | None = None,
-    pad_with_labels: float | None = None,
+    label_pad: float | None = None,
     facet_length: float = 0.5,
     length: float | None = None,
     align: Literal["center", "left", "right"] = "center",
@@ -2096,7 +2107,7 @@ def colorbar(
     scalar_formatter : bool, default True
         Format automatic tick labels with a math-text ``ScalarFormatter`` using
         *powerlimits*. If False, keep the default Matplotlib formatter.
-    thickness, pad, pad_with_labels, facet_length, length, align : optional
+    thickness, pad, label_pad, facet_length, length, align : optional
         Size and placement of an automatically created colorbar axis; see
         :func:`get_cax`. Ignored when *cax* is given.
     minimal_ticks_threshold : int, default 6
@@ -2160,7 +2171,7 @@ def colorbar(
             pad_bottom=pad_bottom,
             thickness=thickness,
             pad=pad,
-            pad_with_labels=pad_with_labels,
+            label_pad=label_pad,
             facet_length=facet_length,
             length=length,
             align=align,

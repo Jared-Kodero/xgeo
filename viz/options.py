@@ -470,10 +470,11 @@ class ColorbarStyle(Option):
         Gap between the axes and the colorbar, in the same units as
         ``thickness``. Default 0.04 for a vertical and 0.05 for a horizontal
         colorbar.
-    pad_with_labels : float, optional
-        Gap below the axes of a horizontal colorbar when tick labels or an
-        x-axis label sit there. Default ``pad + 0.05``, which is 0.1 for the
-        default ``pad``. Ignored for a vertical colorbar.
+    label_pad : float, optional
+        Fixed gap below the axes of a horizontal colorbar when tick labels or
+        an x-axis label sit there. Default ``None`` measures the rendered labels
+        and places the colorbar ``pad`` below them, so it clears them at any
+        font size. Ignored for a vertical colorbar.
     facet_length : float, optional
         Length of the colorbar as a fraction of the panel grid when the grid has
         more than one row (vertical colorbar) or more than one column (horizontal
@@ -507,7 +508,7 @@ class ColorbarStyle(Option):
     tick_labels: Sequence[str] | None = option()
     thickness: float | None = option()
     pad: float | None = option()
-    pad_with_labels: float | None = option()
+    label_pad: float | None = option()
     facet_length: float | None = option()
     length: float | None = option()
     align: Literal["center", "left", "right"] | None = option()
@@ -529,7 +530,7 @@ class ColorbarStyle(Option):
             value = self.get(name)
             if value is not None and not (math.isfinite(value) and value >= 0.0):
                 raise ValueError(f"{name} must be non-negative and finite")
-        for name in ("thickness", "pad", "pad_with_labels"):
+        for name in ("thickness", "pad", "label_pad"):
             value = self.get(name)
             if value is not None and not (math.isfinite(value) and value >= 0.0):
                 raise ValueError(f"{name} must be non-negative and finite")
@@ -560,7 +561,7 @@ class ColorbarStyle(Option):
             for name in (
                 "thickness",
                 "pad",
-                "pad_with_labels",
+                "label_pad",
                 "facet_length",
                 "length",
                 "align",

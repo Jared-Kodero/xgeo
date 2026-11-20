@@ -36,6 +36,7 @@ __all__ = [
     "load_array",
     "open_dataframe",
     "open_dataset",
+    "open_xnpy",
     "save",
 ]
 
@@ -65,7 +66,7 @@ def load_array(
     TypeError
         If the store does not hold an ndarray.
     """
-    obj = _open(path, mmap_mode=mmap_mode)
+    obj = open_xnpy(path, mmap_mode=mmap_mode)
     if not isinstance(obj, np.ndarray):
         raise TypeError(f"Store {path} does not hold an ndarray.")
     return obj
@@ -102,7 +103,7 @@ def open_dataframe(
     TypeError
         If the store holds neither a DataFrame nor a Series.
     """
-    obj = _open(path, variables=variables, mmap_mode=mmap_mode)
+    obj = open_xnpy(path, variables=variables, mmap_mode=mmap_mode)
     if not isinstance(obj, pd.DataFrame | pd.Series):
         raise TypeError(f"Store {path} does not hold a DataFrame or Series.")
     return obj
@@ -113,7 +114,7 @@ def open_dataset(
     *,
     variables: list[str] | tuple[str, ...] | str | None = None,
     mmap_mode: Literal["r", "r+", "c"] | None = "r",
-) -> xr.Dataset | xr.DataArray:
+) -> xr.Dataset:
     """Open a Dataset store.
 
     Parameters
@@ -127,21 +128,25 @@ def open_dataset(
 
     Returns
     -------
-    xarray.Dataset or xarray.DataArray
-        The loaded Dataset, or a DataArray when ``variables`` is a single name.
+    xarray.Dataset
+        The loaded Dataset.
 
     Raises
     ------
     TypeError
         If the store does not hold a Dataset.
     """
-    obj = _open(path, variables=variables, mmap_mode=mmap_mode)
+    obj = open_xnpy(path, variables=variables, mmap_mode=mmap_mode)
     if not isinstance(obj, xr.Dataset | xr.DataArray):
-        raise TypeError(f"Store {path} does not hold a Dataset.")
+        raise TypeError(f"Store {path} does not hold a Dataset or DataArray")
+
+    # if instance is DataArray convert to Dataset
+    if isinstance(obj, xr.DataArray):
+        obj = obj.to_dataset()
     return obj
 
 
-def _open(
+def open_xnpy(
     path: str | Path,
     variables: list[str] | tuple[str, ...] | str | None = None,
     *,
@@ -758,7 +763,7 @@ def decode_metadata(
         if "__ndarray__" in value:
             return np.array(value["__ndarray__"], dtype=value["dtype"])
         if "__xnpy__" in value:
-            return _open(root / value["__xnpy__"], mmap_mode=mmap_mode)
+            return open_xnpy(root / value["__xnpy__"], mmap_mode=mmap_mode)
         return {
             key: decode_metadata(item, root, mmap_mode) for key, item in value.items()
         }
@@ -799,5 +804,5 @@ def decode_metadata(
         )
         return array.reshape(value["shape"])
     if type_name == "xnpy":
-        return _open(root / value["path"], mmap_mode=mmap_mode)
+        return open_xnpy(root / value["path"], mmap_mode=mmap_mode)
     raise ValueError(f"Unknown metadata type: {type_name!r}.")

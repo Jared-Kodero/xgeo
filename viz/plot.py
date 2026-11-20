@@ -1912,7 +1912,7 @@ class Adder:
             Colorbar orientation.
         style : ColorbarStyle, optional
             Styling and layout of this colorbar, including ``thickness``,
-            ``pad``, ``pad_with_labels``, ``facet_length`` and
+            ``pad``, ``label_pad``, ``facet_length`` and
             ``minimal_ticks_threshold``. Fields set here replace those of the
             plot's own ``colorbar_style``; the keyword arguments below take
             precedence over the style.
